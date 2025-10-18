@@ -8,19 +8,22 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = SageGreen80,
+    secondary = SageGreenGrey80,
+    tertiary = SageGreenAccent80
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = SageGreen40,
+    secondary = SageGreenGrey40,
+    tertiary = SageGreenAccent40
 
     /* Other default colors to override
     background = Color(0xFFFFFBFE),
@@ -40,18 +43,40 @@ fun ViewsTheme(
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    // Remember the color scheme to avoid recomputation
+    val colorScheme = remember(darkTheme, dynamicColor) {
+        when {
+            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                // Will be calculated once per darkTheme change
+                null // Placeholder for dynamic colors
+            }
+            darkTheme -> DarkColorScheme
+            else -> LightColorScheme
         }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+    }
+    
+    // Handle dynamic colors separately since they need context
+    val finalColorScheme = if (colorScheme == null && dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val context = LocalContext.current
+        remember(context, darkTheme) {
+            if (darkTheme) {
+                dynamicDarkColorScheme(context).copy(
+                    primary = SageGreen80,
+                    onPrimary = Color.White
+                )
+            } else {
+                dynamicLightColorScheme(context).copy(
+                    primary = SageGreen40,
+                    onPrimary = Color.White
+                )
+            }
+        }
+    } else {
+        colorScheme ?: LightColorScheme
     }
 
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = finalColorScheme,
         typography = Typography,
         content = content
     )

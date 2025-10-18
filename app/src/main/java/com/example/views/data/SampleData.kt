@@ -129,4 +129,112 @@ object SampleData {
             hashtags = listOf("SoftwareDevelopment", "ProblemSolving", "UserExperience")
         )
     )
+    
+    // Sample comments with deep nesting for testing conversation threads
+    val sampleComments = listOf(
+        Comment(
+            id = "c1",
+            author = sampleAuthors[0],
+            content = "This is such an interesting topic! I've been thinking about this a lot lately.",
+            timestamp = System.currentTimeMillis() - 5000000,
+            likes = 12,
+            isLiked = false
+        ),
+        Comment(
+            id = "c2",
+            author = sampleAuthors[1],
+            content = "Completely agree! This is going to change everything.",
+            timestamp = System.currentTimeMillis() - 4500000,
+            likes = 8,
+            isLiked = true
+        ),
+        Comment(
+            id = "c3",
+            author = sampleAuthors[2],
+            content = "I have a different perspective on this...",
+            timestamp = System.currentTimeMillis() - 4000000,
+            likes = 15,
+            isLiked = false
+        ),
+        Comment(
+            id = "c4",
+            author = sampleAuthors[3],
+            content = "Can you elaborate more on this point?",
+            timestamp = System.currentTimeMillis() - 3500000,
+            likes = 5,
+            isLiked = false
+        ),
+        Comment(
+            id = "c5",
+            author = sampleAuthors[4],
+            content = "This reminds me of something I read recently.",
+            timestamp = System.currentTimeMillis() - 3000000,
+            likes = 7,
+            isLiked = false
+        ),
+        Comment(
+            id = "c6",
+            author = sampleAuthors[0],
+            content = "Sure! What I meant was...",
+            timestamp = System.currentTimeMillis() - 2500000,
+            likes = 10,
+            isLiked = true
+        ),
+        Comment(
+            id = "c7",
+            author = sampleAuthors[1],
+            content = "That's a great explanation, thanks!",
+            timestamp = System.currentTimeMillis() - 2000000,
+            likes = 3,
+            isLiked = false
+        ),
+        Comment(
+            id = "c8",
+            author = sampleAuthors[2],
+            content = "I see where you're coming from now.",
+            timestamp = System.currentTimeMillis() - 1500000,
+            likes = 6,
+            isLiked = false
+        ),
+        Comment(
+            id = "c9",
+            author = sampleAuthors[3],
+            content = "But what about the edge cases?",
+            timestamp = System.currentTimeMillis() - 1000000,
+            likes = 4,
+            isLiked = false
+        ),
+        Comment(
+            id = "c10",
+            author = sampleAuthors[4],
+            content = "Edge cases are definitely important to consider.",
+            timestamp = System.currentTimeMillis() - 500000,
+            likes = 8,
+            isLiked = true
+        ),
+        Comment(
+            id = "c11",
+            author = sampleAuthors[0],
+            content = "In my experience, the edge cases usually reveal the most interesting insights.",
+            timestamp = System.currentTimeMillis() - 400000,
+            likes = 12,
+            isLiked = false
+        ),
+        Comment(
+            id = "c12",
+            author = sampleAuthors[1],
+            content = "Absolutely! That's where the real learning happens.",
+            timestamp = System.currentTimeMillis() - 300000,
+            likes = 9,
+            isLiked = true
+        ),
+        Comment(
+            id = "c13",
+            author = sampleAuthors[2],
+            content = "This thread has been really enlightening. Thanks everyone!",
+            timestamp = System.currentTimeMillis() - 200000,
+            likes = 15,
+            isLiked = false
+        )
+    )
 }

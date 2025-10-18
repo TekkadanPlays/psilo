@@ -194,7 +194,6 @@ private data class SidebarMenuItem(
 
 private fun getMenuItems(): List<SidebarMenuItem> = listOf(
     SidebarMenuItem("home", "Home", Icons.Default.Home),
-    SidebarMenuItem("notifications", "Notifications", Icons.Default.Notifications, "3"),
     SidebarMenuItem("messages", "Messages", Icons.Default.Email),
     SidebarMenuItem("bookmarks", "Bookmarks", Icons.Default.Star),
     SidebarMenuItem("lists", "Lists", Icons.Default.List),

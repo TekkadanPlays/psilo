@@ -1,0 +1,44 @@
+{
+  "id": "ribbit",
+  "name": "Ribbit",
+  "summary": "A modern social networking platform built with Jetpack Compose",
+  "description": "Ribbit is a modern social networking platform where users can share thoughts, ideas, and connect with others in meaningful ways. Built with the latest Android technologies including Jetpack Compose and Material Design 3.",
+  "author": "Tekkadan",
+  "authorEmail": "npub12zqf55l7l9vsg5f6ssx5pq4f9dzu6hcmnepkm8ftj25fecy379jqkq99h8",
+  "authorWebsite": "https://njump.me/npub12zqf55l7l9vsg5f6ssx5pq4f9dzu6hcmnepkm8ftj25fecy379jqkq99h8",
+  "sourceCode": "https://github.com/TekkadanPlays/ribbit-android",
+  "license": "MIT",
+  "categories": ["Social"],
+  "tags": ["social", "compose", "material-design", "modern"],
+  "screenshots": [
+    "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/screenshots/screenshot1.png",
+    "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/screenshots/screenshot2.png",
+    "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/screenshots/screenshot3.png"
+  ],
+  "icon": "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+  "banner": "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/banner.png",
+  "releases": [
+    {
+      "version": "1.0",
+      "versionCode": 1,
+      "releaseDate": "2024-01-01",
+      "downloadUrl": "https://github.com/TekkadanPlays/ribbit-android/releases/download/v1.0/ribbit-v1.0.apk",
+      "changelog": "Initial release with modern UI and core features",
+      "minSdk": 35,
+      "targetSdk": 36,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "features": [
+        "Modern Material Design 3 UI",
+        "Jetpack Compose architecture",
+        "State preservation across navigation",
+        "Thread view with comment hierarchy",
+        "Profile management",
+        "Search functionality",
+        "Responsive design"
+      ]
+    }
+  ]
+}

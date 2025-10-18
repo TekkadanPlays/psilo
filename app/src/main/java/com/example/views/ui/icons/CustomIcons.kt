@@ -145,3 +145,59 @@ val Icons.Outlined.Bookmark: ImageVector
 
 private var _bookmark: ImageVector? = null
 
+val Icons.Outlined.ChatBubbleOutline: ImageVector
+    get() {
+        if (_chatBubbleOutline != null) {
+            return _chatBubbleOutline!!
+        }
+        _chatBubbleOutline = materialIcon(name = "Outlined.ChatBubbleOutline") {
+            materialPath {
+                moveTo(20.0f, 2.0f)
+                horizontalLineTo(4.0f)
+                curveToRelative(-1.1f, 0.0f, -2.0f, 0.9f, -2.0f, 2.0f)
+                verticalLineToRelative(18.0f)
+                lineToRelative(4.0f, -4.0f)
+                horizontalLineToRelative(14.0f)
+                curveToRelative(1.1f, 0.0f, 2.0f, -0.9f, 2.0f, -2.0f)
+                verticalLineTo(4.0f)
+                curveToRelative(0.0f, -1.1f, -0.9f, -2.0f, -2.0f, -2.0f)
+                close()
+                moveTo(20.0f, 16.0f)
+                horizontalLineTo(6.0f)
+                lineToRelative(-2.0f, 2.0f)
+                verticalLineTo(4.0f)
+                horizontalLineToRelative(16.0f)
+                verticalLineToRelative(12.0f)
+                close()
+            }
+        }
+        return _chatBubbleOutline!!
+    }
+
+private var _chatBubbleOutline: ImageVector? = null
+
+val Icons.Outlined.Reply: ImageVector
+    get() {
+        if (_reply != null) {
+            return _reply!!
+        }
+        _reply = materialIcon(name = "Outlined.Reply") {
+            materialPath {
+                moveTo(10.0f, 9.0f)
+                verticalLineTo(5.0f)
+                lineToRelative(-7.0f, 7.0f)
+                lineToRelative(7.0f, 7.0f)
+                verticalLineToRelative(-4.0f)
+                curveToRelative(3.31f, 0.0f, 6.0f, 2.69f, 6.0f, 6.0f)
+                curveToRelative(0.0f, 1.01f, -0.25f, 1.97f, -0.7f, 2.8f)
+                lineToRelative(1.46f, 1.46f)
+                curveTo(18.97f, 15.17f, 20.0f, 13.21f, 20.0f, 11.0f)
+                curveToRelative(0.0f, -4.42f, -3.58f, -8.0f, -8.0f, -8.0f)
+                close()
+            }
+        }
+        return _reply!!
+    }
+
+private var _reply: ImageVector? = null
+

@@ -21,4 +21,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Views"
 include(":app")
+// Benchmark module disabled for now - plugin version conflict with AGP 8.13
+// To enable: update AGP or use compatible baseline profile plugin version
+// include(":benchmark")
  

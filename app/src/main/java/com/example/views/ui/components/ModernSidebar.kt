@@ -69,7 +69,7 @@ private fun SidebarContent(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             colors = CardDefaults.cardColors(
-                containerColor = androidx.compose.ui.graphics.Color(0xFF8FBC8F) // Sage green
+                containerColor = MaterialTheme.colorScheme.primary // Use theme color
             )
         ) {
             Row(
@@ -89,7 +89,7 @@ private fun SidebarContent(
                         text = "JD",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF2E5D4E)
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     )
                 }
@@ -101,13 +101,13 @@ private fun SidebarContent(
                         text = "John Doe",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     )
                     Text(
                         text = "@johndoe",
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = Color.White.copy(alpha = 0.8f)
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                         )
                     )
                 }

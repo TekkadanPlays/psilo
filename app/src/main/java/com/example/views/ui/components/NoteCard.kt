@@ -29,6 +29,10 @@ import com.example.views.ui.icons.Bookmark
 import com.example.views.ui.icons.ChatBubble
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
+
+// ✅ CRITICAL PERFORMANCE FIX: Cache SimpleDateFormat
+private val dateFormatter by lazy { SimpleDateFormat("MMM d", Locale.getDefault()) }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,12 +42,14 @@ fun NoteCard(
     onShare: (String) -> Unit = {},
     onComment: (String) -> Unit = {},
     onProfileClick: (String) -> Unit = {},
+    onNoteClick: (Note) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 4.dp)
+            .clickable { onNoteClick(note) },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RectangleShape
     ) {
@@ -91,8 +97,12 @@ fun NoteCard(
                             )
                         )
                     }
+                    // ✅ PERFORMANCE: Memoized timestamp formatting (Thread view pattern)
+                    val formattedTime = remember(note.timestamp) {
+                        formatTimestamp(note.timestamp)
+                    }
                     Text(
-                        text = formatTimestamp(note.timestamp),
+                        text = formattedTime,
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -122,91 +132,84 @@ fun NoteCard(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Action buttons - 6 icons total
+            // Action buttons - 6 icons total with expanded hitboxes
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Upvote button - using ArrowShapeUp from extended icons
-                IconButton(
+                // Upvote button - expanded hitbox
+                ActionButton(
+                    icon = Icons.Outlined.ArrowUpward,
+                    contentDescription = "Upvote",
                     onClick = { /* Test button */ },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.ArrowUpward,
-                        contentDescription = "Upvote",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                    modifier = Modifier.weight(1f)
+                )
                 
-                // Downvote button - using ArrowShapeUp rotated 180 degrees
-                IconButton(
+                // Downvote button - expanded hitbox
+                ActionButton(
+                    icon = Icons.Outlined.ArrowDownward,
+                    contentDescription = "Downvote",
                     onClick = { /* Test button */ },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.ArrowDownward,
-                        contentDescription = "Downvote",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                    modifier = Modifier.weight(1f)
+                )
                 
-                // Bookmark button - using Bookmark from extended icons
-                IconButton(
+                // Bookmark button - expanded hitbox
+                ActionButton(
+                    icon = Icons.Outlined.Bookmark,
+                    contentDescription = "Bookmark",
                     onClick = { /* Test button */ },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Bookmark,
-                        contentDescription = "Bookmark",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                    modifier = Modifier.weight(1f)
+                )
                 
-                // Comment button - using ChatBubble from extended icons
-                IconButton(
-                    onClick = { /* Test button */ },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.ChatBubble,
-                        contentDescription = "Comment",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                // Comment button - expanded hitbox
+                ActionButton(
+                    icon = Icons.Outlined.ChatBubble,
+                    contentDescription = "Comment",
+                    onClick = { onComment(note.id) },
+                    modifier = Modifier.weight(1f)
+                )
                 
-                // Lightning bolt button - using Bolt from extended icons
-                IconButton(
+                // Lightning bolt button - expanded hitbox
+                ActionButton(
+                    icon = Icons.Outlined.Bolt,
+                    contentDescription = "Lightning",
                     onClick = { /* Test button */ },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Bolt,
-                        contentDescription = "Lightning",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                    modifier = Modifier.weight(1f)
+                )
                 
-                // More options menu (3-dot)
-                IconButton(
+                // More options menu - expanded hitbox
+                ActionButton(
+                    icon = Icons.Default.MoreVert,
+                    contentDescription = "More options",
                     onClick = { /* Test button */ },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun ActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // ✅ EXPANDED HITBOX: Wider touch target to prevent accidental card activation
+    Box(
+        modifier = modifier
+            .height(48.dp)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
@@ -215,13 +218,10 @@ private fun formatTimestamp(timestamp: Long): String {
     val diff = now - timestamp
     
     return when {
-        diff < 60000 -> "now"
-        diff < 3600000 -> "${diff / 60000}m"
-        diff < 86400000 -> "${diff / 3600000}h"
-        else -> {
-            val formatter = SimpleDateFormat("MMM d", Locale.getDefault())
-            formatter.format(Date(timestamp))
-        }
+        diff < TimeUnit.MINUTES.toMillis(1) -> "now"
+        diff < TimeUnit.HOURS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toMinutes(diff)}m"
+        diff < TimeUnit.DAYS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toHours(diff)}h"
+        else -> dateFormatter.format(Date(timestamp))
     }
 }
 

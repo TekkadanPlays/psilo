@@ -53,18 +53,24 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             SettingsItem(icon = Icons.Outlined.Settings, title = "General", onClick = { /* TODO */ })
-            SettingsItem(icon = Icons.Outlined.Edit, title = "Appearance", onClick = { /* TODO */ })
+            SettingsItem(icon = Icons.Outlined.Edit, title = "Appearance", onClick = { onNavigateTo("appearance") })
             SettingsItem(icon = Icons.Outlined.Notifications, title = "Notifications", onClick = { /* TODO */ })
             SettingsItem(icon = Icons.Outlined.Person, title = "Account Preferences", onClick = { /* TODO */ })
             SettingsItem(icon = Icons.Outlined.Lock, title = "Filters & Blocks", onClick = { /* TODO */ })
             SettingsItem(icon = Icons.Outlined.Settings, title = "Data and Storage", onClick = { /* TODO */ })
             SettingsItem(icon = Icons.Outlined.Settings, title = "Advanced", onClick = { /* TODO */ })
             
-            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(
+                thickness = 1.dp, 
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            )
             
             SettingsItem(icon = Icons.Outlined.FavoriteBorder, title = "Support Ribbit", onClick = { /* TODO */ }, iconTint = Color(0xFFE57373))
             
-            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(
+                thickness = 1.dp, 
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            )
             
             SettingsItem(icon = Icons.Outlined.Info, title = "About", onClick = { onNavigateTo("about") })
             

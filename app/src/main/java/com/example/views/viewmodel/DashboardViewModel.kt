@@ -1,5 +1,6 @@
 package com.example.views.viewmodel
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.views.data.Note
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+@Immutable
 data class DashboardUiState(
     val notes: List<Note> = emptyList(),
     val isLoading: Boolean = false,
@@ -55,20 +57,20 @@ class DashboardViewModel : ViewModel() {
     }
     
     private fun handleRealTimeUpdate(update: NoteUpdate) {
-        val currentNotes = _uiState.value.notes.toMutableList()
-        val noteIndex = currentNotes.indexOfFirst { it.id == update.noteId }
-        
-        if (noteIndex != -1) {
-            val note = currentNotes[noteIndex]
-            val updatedNote = when (update.action) {
-                "like" -> note.copy(likes = note.likes + 1, isLiked = true)
-                "unlike" -> note.copy(likes = note.likes - 1, isLiked = false)
-                "share" -> note.copy(shares = note.shares + 1, isShared = true)
-                else -> note
+        _uiState.value = _uiState.value.copy(
+            notes = _uiState.value.notes.map { note ->
+                if (note.id == update.noteId) {
+                    when (update.action) {
+                        "like" -> note.copy(likes = note.likes + 1, isLiked = true)
+                        "unlike" -> note.copy(likes = note.likes - 1, isLiked = false)
+                        "share" -> note.copy(shares = note.shares + 1, isShared = true)
+                        else -> note
+                    }
+                } else {
+                    note
+                }
             }
-            currentNotes[noteIndex] = updatedNote
-            _uiState.value = _uiState.value.copy(notes = currentNotes)
-        }
+        )
     }
     
     
@@ -76,75 +78,70 @@ class DashboardViewModel : ViewModel() {
     
     fun toggleLike(noteId: String) {
         viewModelScope.launch {
-            val currentNotes = _uiState.value.notes.toMutableList()
-            val noteIndex = currentNotes.indexOfFirst { it.id == noteId }
+            var isLikedAction = false
             
-            if (noteIndex != -1) {
-                val note = currentNotes[noteIndex]
-                val updatedNote = if (note.isLiked) {
-                    note.copy(
-                        likes = note.likes - 1,
-                        isLiked = false
-                    )
-                } else {
-                    note.copy(
-                        likes = note.likes + 1,
-                        isLiked = true
-                    )
+            _uiState.value = _uiState.value.copy(
+                notes = _uiState.value.notes.map { note ->
+                    if (note.id == noteId) {
+                        val updatedNote = if (note.isLiked) {
+                            note.copy(likes = note.likes - 1, isLiked = false)
+                        } else {
+                            note.copy(likes = note.likes + 1, isLiked = true)
+                        }
+                        isLikedAction = updatedNote.isLiked
+                        updatedNote
+                    } else {
+                        note
+                    }
                 }
-                currentNotes[noteIndex] = updatedNote
-                _uiState.value = _uiState.value.copy(notes = currentNotes)
-                
-                // Send update via WebSocket
-                val update = NoteUpdate(
-                    noteId = noteId,
-                    action = if (updatedNote.isLiked) "like" else "unlike",
-                    userId = "current_user", // In a real app, get from auth
-                    timestamp = System.currentTimeMillis()
-                )
-                webSocketClient.sendNoteUpdate(update)
-            }
+            )
+            
+            // Send update via WebSocket
+            val update = NoteUpdate(
+                noteId = noteId,
+                action = if (isLikedAction) "like" else "unlike",
+                userId = "current_user", // In a real app, get from auth
+                timestamp = System.currentTimeMillis()
+            )
+            webSocketClient.sendNoteUpdate(update)
         }
     }
     
     fun shareNote(noteId: String) {
         viewModelScope.launch {
-            val currentNotes = _uiState.value.notes.toMutableList()
-            val noteIndex = currentNotes.indexOfFirst { it.id == noteId }
+            _uiState.value = _uiState.value.copy(
+                notes = _uiState.value.notes.map { note ->
+                    if (note.id == noteId) {
+                        note.copy(shares = note.shares + 1, isShared = true)
+                    } else {
+                        note
+                    }
+                }
+            )
             
-            if (noteIndex != -1) {
-                val note = currentNotes[noteIndex]
-                val updatedNote = note.copy(
-                    shares = note.shares + 1,
-                    isShared = true
-                )
-                currentNotes[noteIndex] = updatedNote
-                _uiState.value = _uiState.value.copy(notes = currentNotes)
-                
-                // Send update via WebSocket
-                val update = NoteUpdate(
-                    noteId = noteId,
-                    action = "share",
-                    userId = "current_user",
-                    timestamp = System.currentTimeMillis()
-                )
-                webSocketClient.sendNoteUpdate(update)
-            }
+            // Send update via WebSocket
+            val update = NoteUpdate(
+                noteId = noteId,
+                action = "share",
+                userId = "current_user",
+                timestamp = System.currentTimeMillis()
+            )
+            webSocketClient.sendNoteUpdate(update)
         }
     }
     
     fun commentOnNote(noteId: String) {
         // In a real app, this would open a comment dialog or navigate to comments
         viewModelScope.launch {
-            val currentNotes = _uiState.value.notes.toMutableList()
-            val noteIndex = currentNotes.indexOfFirst { it.id == noteId }
-            
-            if (noteIndex != -1) {
-                val note = currentNotes[noteIndex]
-                val updatedNote = note.copy(comments = note.comments + 1)
-                currentNotes[noteIndex] = updatedNote
-                _uiState.value = _uiState.value.copy(notes = currentNotes)
-            }
+            _uiState.value = _uiState.value.copy(
+                notes = _uiState.value.notes.map { note ->
+                    if (note.id == noteId) {
+                        note.copy(comments = note.comments + 1)
+                    } else {
+                        note
+                    }
+                }
+            )
         }
     }
     

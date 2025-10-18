@@ -26,11 +26,12 @@ import androidx.compose.ui.unit.offset
 fun AdaptiveHeader(
     title: String = "Ribbit",
     isSearchMode: Boolean = false,
+    showBackArrow: Boolean = false,
     searchQuery: TextFieldValue = TextFieldValue(""),
     onSearchQueryChange: (TextFieldValue) -> Unit = {},
     onMenuClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
-    onNotificationsClick: () -> Unit = {},
+    onFilterClick: () -> Unit = {},
     onMoreOptionClick: (String) -> Unit = {},
     onBackClick: () -> Unit = {},
     onClearSearch: () -> Unit = {},
@@ -83,6 +84,7 @@ fun AdaptiveHeader(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(start = 8.dp) // Add padding to match title spacing
                         .focusRequester(focusRequester),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.headlineSmall.copy(
@@ -108,8 +110,8 @@ fun AdaptiveHeader(
             }
         },
         navigationIcon = {
-            if (isSearchMode) {
-                // Search mode - show back button
+            if (isSearchMode || showBackArrow) {
+                // Search mode or back arrow mode - show back button
                 IconButton(onClick = onBackClick) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -143,21 +145,13 @@ fun AdaptiveHeader(
                         )
                     }
                     
-                    // Notifications button with badge
-                    Box {
-                        IconButton(onClick = onNotificationsClick) {
-                            Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = "Notifications",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        // Notification badge
-                        Badge(
-                            modifier = Modifier.offset(x = (-8).dp, y = 8.dp)
-                        ) {
-                            Text("3")
-                        }
+                    // Filter/Sort button
+                    IconButton(onClick = onFilterClick) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Filter/Sort",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                     
                     // More options menu

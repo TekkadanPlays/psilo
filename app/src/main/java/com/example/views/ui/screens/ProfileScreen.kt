@@ -15,6 +15,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +31,7 @@ import com.example.views.data.Author
 import com.example.views.data.Note
 import com.example.views.data.SampleData
 import com.example.views.ui.components.BottomNavigationBar
+import com.example.views.ui.components.ModernSearchBar
 import com.example.views.ui.components.NoteCard
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,106 +40,153 @@ fun ProfileScreen(
     author: Author,
     authorNotes: List<Note>,
     onBackClick: () -> Unit,
-    onNoteClick: (String) -> Unit = {},
+    onNoteClick: (Note) -> Unit = {},
     onLike: (String) -> Unit = {},
     onShare: (String) -> Unit = {},
     onComment: (String) -> Unit = {},
     onProfileClick: (String) -> Unit = {},
     onNavigateTo: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier
 ) {
-    val listState = rememberLazyListState()
+    // Search state - using simple String
+    var isSearchMode by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    
+    // Filter results based on search query using derivedStateOf
+    val searchResults by remember {
+        derivedStateOf {
+            if (searchQuery.isBlank()) {
+                emptyList()
+            } else {
+                authorNotes.filter { note ->
+                    note.content.contains(searchQuery, ignoreCase = true) ||
+                    note.author.displayName.contains(searchQuery, ignoreCase = true) ||
+                    note.author.username.contains(searchQuery, ignoreCase = true) ||
+                    note.hashtags.any { it.contains(searchQuery, ignoreCase = true) }
+                }
+            }
+        }
+    }
     
     Scaffold(
         bottomBar = {
-            BottomNavigationBar(
-                currentDestination = "profile",
-                onDestinationClick = { destination ->
-                    when (destination) {
-                        "profile" -> { /* Already on profile, do nothing */ }
-                        "home" -> onBackClick() // Go back to dashboard
-                        else -> { /* Other destinations not implemented yet */ }
+            // ✅ BLACK BACKGROUND: Space beneath home bar should be black
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black)
+            ) {
+                BottomNavigationBar(
+                    currentDestination = "profile",
+                    onDestinationClick = { destination ->
+                        when (destination) {
+                            "profile" -> { /* Already on profile, do nothing */ }
+                            "home" -> onBackClick() // Go back to dashboard
+                            "search" -> isSearchMode = true
+                            else -> { /* Other destinations not implemented yet */ }
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { paddingValues ->
-        Column(
-            modifier = modifier.fillMaxSize()
-        ) {
-            // Top App Bar
-            TopAppBar(
-            title = {
-                Text(
-                    text = author.displayName,
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            },
-            actions = {
-                IconButton(onClick = { /* TODO: Implement more options */ }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        )
-        
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = paddingValues.calculateBottomPadding() + 8.dp, top = 8.dp)
+        Box(modifier = modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-            // Profile Header
-            item {
-                ProfileHeader(
-                    author = author,
-                    modifier = Modifier.fillMaxWidth()
+                // Top App Bar
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = author.displayName,
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { /* TODO: Implement more options */ }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 )
+                
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = paddingValues.calculateBottomPadding() + 8.dp, top = 8.dp)
+                ) {
+                    // Profile Header
+                    item {
+                        ProfileHeader(
+                            author = author,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    item {
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                    
+                    // Notes List
+                    items(authorNotes.size) { index ->
+                        val note = authorNotes[index]
+                        NoteCard(
+                            note = note,
+                            onLike = onLike,
+                            onShare = onShare,
+                            onComment = onComment,
+                            onProfileClick = onProfileClick,
+                            onNoteClick = onNoteClick,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
             
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-            
-            // Notes Section
-            item {
-                Text(
-                    text = "Notes (${authorNotes.size})",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    modifier = Modifier.padding(start = 16.dp, bottom = 16.dp)
+            // Search bar overlay - appears in header area when active
+            if (isSearchMode) {
+                ModernSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onSearch = { /* Optional: Handle explicit search submission */ },
+                    searchResults = searchResults,
+                    onResultClick = { note ->
+                        onNoteClick(note)
+                        isSearchMode = false
+                        searchQuery = ""
+                    },
+                    active = isSearchMode,
+                    onActiveChange = { active -> 
+                        if (!active) {
+                            isSearchMode = false
+                            searchQuery = ""
+                        }
+                    },
+                    onBackClick = { 
+                        searchQuery = ""
+                        isSearchMode = false 
+                    },
+                    placeholder = { Text("Search ${author.displayName}'s notes...") },
+                    modifier = Modifier.padding(paddingValues)
                 )
             }
-            
-            // Notes List
-            items(authorNotes.size) { index ->
-                val note = authorNotes[index]
-                NoteCard(
-                    note = note,
-                    onLike = onLike,
-                    onShare = onShare,
-                    onComment = onComment,
-                    onProfileClick = onProfileClick,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
         }
     }
 }

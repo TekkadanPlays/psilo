@@ -1,8 +1,10 @@
 package com.example.views.data
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import java.util.Date
 
+@Immutable
 @Serializable
 data class Note(
     val id: String,
@@ -18,6 +20,7 @@ data class Note(
     val hashtags: List<String> = emptyList()
 )
 
+@Immutable
 @Serializable
 data class Author(
     val id: String,
@@ -27,6 +30,7 @@ data class Author(
     val isVerified: Boolean = false
 )
 
+@Immutable
 @Serializable
 data class Comment(
     val id: String,
@@ -37,6 +41,7 @@ data class Comment(
     val isLiked: Boolean = false
 )
 
+@Immutable
 @Serializable
 data class WebSocketMessage(
     val type: String,
@@ -47,6 +52,7 @@ enum class NoteAction {
     LIKE, UNLIKE, SHARE, COMMENT, DELETE
 }
 
+@Immutable
 @Serializable
 data class NoteUpdate(
     val noteId: String,

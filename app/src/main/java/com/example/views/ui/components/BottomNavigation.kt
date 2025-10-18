@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
@@ -23,11 +24,21 @@ fun BottomNavigationBar(
                 icon = {
                     Icon(
                         imageVector = destination.icon,
-                        contentDescription = destination.label
+                        contentDescription = destination.label,
+                        tint = if (currentDestination == destination.route) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 },
                 selected = currentDestination == destination.route,
-                onClick = { onDestinationClick(destination.route) }
+                onClick = { onDestinationClick(destination.route) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = Color.Transparent // Remove the oval background
+                )
             )
         }
     }
@@ -40,7 +51,7 @@ enum class BottomNavDestinations(
 ) {
     HOME("home", "Home", Icons.Default.Home),
     SEARCH("search", "Search", Icons.Default.Search),
-    NOTIFICATIONS("notifications", "Notifications", Icons.Default.Notifications),
+    LISTS("lists", "Lists", Icons.Default.List),
     MESSAGES("messages", "Messages", Icons.Default.Email),
     PROFILE("profile", "Profile", Icons.Default.Person)
 }
