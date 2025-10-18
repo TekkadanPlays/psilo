@@ -90,3 +90,6 @@ lint/tmp/
 screenshots/
 
 # Obtanium (keep obtanium.json for distribution)
+
+# Material Components (embedded repository)
+material-components-android/
