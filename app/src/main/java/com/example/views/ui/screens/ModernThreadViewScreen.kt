@@ -500,14 +500,14 @@ private fun CompactModernButton(
     IconButton(
         onClick = onClick,
         modifier = modifier
-            .size(32.dp)
+            .size(36.dp) // Slightly bigger button
             .padding(horizontal = 2.dp)
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp) // ✅ COMPACT: Smaller icon size
+            modifier = Modifier.size(20.dp) // Slightly bigger icon
         )
     }
 }
