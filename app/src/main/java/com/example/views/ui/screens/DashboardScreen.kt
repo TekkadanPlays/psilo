@@ -44,6 +44,7 @@ import com.example.views.ui.components.ModernSearchBar
 import com.example.views.ui.components.ModernNoteCard
 import com.example.views.ui.components.NoteCard
 import com.example.views.viewmodel.DashboardViewModel
+import com.example.views.viewmodel.AuthViewModel
 import com.example.views.ui.performance.animatedYOffset
 import java.text.SimpleDateFormat
 import java.util.*
@@ -67,9 +68,12 @@ fun DashboardScreen(
     onScrollToTop: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     viewModel: DashboardViewModel = viewModel(),
+    authViewModel: AuthViewModel = viewModel(),
+    onLoginClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val authState by authViewModel.authState.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     
@@ -112,12 +116,16 @@ fun DashboardScreen(
         drawerState = drawerState,
         onItemClick = { itemId -> 
             when (itemId) {
+                "user_profile" -> {
+                    onNavigateTo("user_profile")
+                }
                 "bug_report" -> {
                     uriHandler.openUri("https://github.com/TekkadanPlays/ribbit-android/issues")
                 }
                 else -> viewModel.onSidebarItemClick(itemId)
             }
         },
+        authState = authState,
         modifier = modifier
     ) {
         Scaffold(
@@ -179,6 +187,8 @@ fun DashboardScreen(
                         },
                         onBackClick = { },
                         onClearSearch = { },
+                        onLoginClick = onLoginClick,
+                        isGuest = authState.isGuest,
                         scrollBehavior = scrollBehavior
                     )
                 }

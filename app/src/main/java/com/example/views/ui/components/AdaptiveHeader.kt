@@ -35,6 +35,8 @@ fun AdaptiveHeader(
     onMoreOptionClick: (String) -> Unit = {},
     onBackClick: () -> Unit = {},
     onClearSearch: () -> Unit = {},
+    onLoginClick: (() -> Unit)? = null,
+    isGuest: Boolean = true,
     scrollBehavior: TopAppBarScrollBehavior? = null,
     modifier: Modifier = Modifier
 ) {
@@ -155,7 +157,11 @@ fun AdaptiveHeader(
                     }
                     
                     // More options menu
-                    MoreOptionsMenu(onMoreOptionClick = onMoreOptionClick)
+                    MoreOptionsMenu(
+                        onMoreOptionClick = onMoreOptionClick,
+                        onLoginClick = onLoginClick,
+                        isGuest = isGuest
+                    )
                 }
             }
         },
@@ -166,7 +172,9 @@ fun AdaptiveHeader(
 
 @Composable
 private fun MoreOptionsMenu(
-    onMoreOptionClick: (String) -> Unit
+    onMoreOptionClick: (String) -> Unit,
+    onLoginClick: (() -> Unit)? = null,
+    isGuest: Boolean = true
 ) {
     var expanded by remember { mutableStateOf(false) }
     
@@ -182,6 +190,19 @@ private fun MoreOptionsMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
+            // Show login option only for guests
+            if (isGuest && onLoginClick != null) {
+                DropdownMenuItem(
+                    text = { Text("Log In") },
+                    leadingIcon = { Icon(Icons.Outlined.Login, contentDescription = null) },
+                    onClick = { 
+                        onLoginClick()
+                        expanded = false
+                    }
+                )
+                HorizontalDivider()
+            }
+            
             DropdownMenuItem(
                 text = { Text("Post View") },
                 leadingIcon = { Icon(Icons.Outlined.Create, contentDescription = null) },

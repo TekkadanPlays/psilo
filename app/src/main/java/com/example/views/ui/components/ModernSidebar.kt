@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 fun ModernSidebar(
     drawerState: DrawerState,
     onItemClick: (String) -> Unit = {},
+    authState: com.example.views.data.AuthState? = null,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -41,7 +42,8 @@ fun ModernSidebar(
                     onItemClick = { itemId ->
                         onItemClick(itemId)
                         scope.launch { drawerState.close() }
-                    }
+                    },
+                    authState = authState
                 )
             }
         },
@@ -54,6 +56,7 @@ fun ModernSidebar(
 @Composable
 private fun SidebarContent(
     onItemClick: (String) -> Unit,
+    authState: com.example.views.data.AuthState? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -86,7 +89,7 @@ private fun SidebarContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "JD",
+                        text = authState?.userProfile?.displayNameOrName?.take(2)?.uppercase() ?: "GU",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary
@@ -98,14 +101,14 @@ private fun SidebarContent(
                 
                 Column {
                     Text(
-                        text = "John Doe",
+                        text = authState?.userProfile?.displayNameOrName ?: "Guest User",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     )
                     Text(
-                        text = "@johndoe",
+                        text = if (authState?.userProfile?.name != null) "@${authState.userProfile.name}" else "Guest",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                         )
@@ -142,6 +145,7 @@ private data class ModernSidebarMenuItem(
 
 private fun getModernMenuItems(): List<ModernSidebarMenuItem> = listOf(
     ModernSidebarMenuItem("home", "Home", Icons.Default.Home),
+    ModernSidebarMenuItem("user_profile", "My Profile", Icons.Default.Person),
     ModernSidebarMenuItem("bookmarks", "Bookmarks", Icons.Default.Star),
     ModernSidebarMenuItem("lists", "Lists", Icons.AutoMirrored.Filled.List),
     ModernSidebarMenuItem("bug_report", "Report a Bug", Icons.Outlined.BugReport)

@@ -1,10 +1,12 @@
 package com.example.views
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
@@ -19,6 +21,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.example.views.data.Author
+import com.example.views.data.Note
 import com.example.views.data.SampleData
 import com.example.views.ui.navigation.MaterialMotion
 import com.example.views.ui.screens.AboutScreen
@@ -30,18 +33,37 @@ import com.example.views.ui.screens.ModernThreadViewScreen
 import com.example.views.ui.screens.createSampleCommentThreads
 import com.example.views.ui.theme.ViewsTheme
 import com.example.views.viewmodel.AppViewModel
+import com.example.views.viewmodel.AuthViewModel
 
 class MainActivity : ComponentActivity() {
+    
+    // Activity result launcher for Amber login
+    private val amberLoginLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        // Handle the login result
+        onAmberLoginResult?.invoke(result.resultCode, result.data)
+    }
+    
+    // Callback to handle login result
+    private var onAmberLoginResult: ((Int, Intent?) -> Unit)? = null
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
         setContent {
             ViewsTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppWithNavigation()
+                    AppWithNavigation(
+                        onAmberLogin = { intent -> amberLoginLauncher.launch(intent) },
+                        onSetLoginResultHandler = { handler -> 
+                            onAmberLoginResult = handler
+                        }
+                    )
                 }
             }
         }
@@ -55,9 +77,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AppWithNavigation() {
+private fun AppWithNavigation(
+    onAmberLogin: (android.content.Intent) -> Unit,
+    onSetLoginResultHandler: ((Int, android.content.Intent?) -> Unit) -> Unit
+) {
     val viewModel: AppViewModel = viewModel()
+    val authViewModel: AuthViewModel = viewModel()
     val appState by viewModel.appState.collectAsState()
+    val authState by authViewModel.authState.collectAsState()
     
     // Remember feed scroll position across navigation with state preservation
     val feedListState = androidx.compose.foundation.lazy.rememberLazyListState(
@@ -88,6 +115,19 @@ private fun AppWithNavigation() {
         viewModel.navigateBack()
     }
     
+    // Login handler
+    val onLoginClick = {
+        val loginIntent = authViewModel.loginWithAmber()
+        onAmberLogin(loginIntent)
+    }
+    
+    // Set up login result handler
+    LaunchedEffect(Unit) {
+        onSetLoginResultHandler { resultCode, data ->
+            authViewModel.handleLoginResult(resultCode, data)
+        }
+    }
+    
     // Optimized navigation - minimal recomposition scope
     when (appState.currentScreen) {
             "dashboard" -> {
@@ -108,6 +148,7 @@ private fun AppWithNavigation() {
                         viewModel.updateCurrentScreen("thread")
                     },
                     onScrollToTop = { /* Scroll to top handled in DashboardScreen */ },
+                    onLoginClick = onLoginClick,
                     listState = feedListState
                 )
             }
@@ -157,8 +198,26 @@ private fun AppWithNavigation() {
                 )
             }
             "user_profile" -> {
-                val currentUser = SampleData.sampleAuthors.first()
-                val userNotes = SampleData.sampleNotes.filter { it.author.id == currentUser.id }
+                // Convert auth state to Author for ProfileScreen
+                val currentUser = authState.userProfile?.let { userProfile ->
+                    Author(
+                        id = userProfile.pubkey,
+                        username = userProfile.name ?: "user",
+                        displayName = userProfile.displayName ?: userProfile.name ?: "User",
+                        avatarUrl = userProfile.picture,
+                        isVerified = false
+                    )
+                } ?: Author(
+                    id = "guest",
+                    username = "guest",
+                    displayName = "Guest User",
+                    avatarUrl = null,
+                    isVerified = false
+                )
+                
+                // For now, show empty notes list - in real app, fetch user's notes
+                val userNotes = emptyList<Note>()
+                
                 ProfileScreen(
                     author = currentUser,
                     authorNotes = userNotes,
