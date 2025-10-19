@@ -146,6 +146,7 @@ private data class ModernSidebarMenuItem(
 private fun getModernMenuItems(): List<ModernSidebarMenuItem> = listOf(
     ModernSidebarMenuItem("home", "Home", Icons.Default.Home),
     ModernSidebarMenuItem("user_profile", "My Profile", Icons.Default.Person),
+    ModernSidebarMenuItem("relays", "Relays", Icons.Default.Router),
     ModernSidebarMenuItem("bookmarks", "Bookmarks", Icons.Default.Star),
     ModernSidebarMenuItem("lists", "Lists", Icons.AutoMirrored.Filled.List),
     ModernSidebarMenuItem("bug_report", "Report a Bug", Icons.Outlined.BugReport)

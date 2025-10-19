@@ -30,7 +30,9 @@ import com.example.views.ui.screens.DashboardScreen
 import com.example.views.ui.screens.ProfileScreen
 import com.example.views.ui.screens.SettingsScreen
 import com.example.views.ui.screens.ModernThreadViewScreen
+import com.example.views.ui.screens.RelayManagementScreen
 import com.example.views.ui.screens.createSampleCommentThreads
+import com.example.views.repository.RelayRepository
 import com.example.views.ui.theme.ViewsTheme
 import com.example.views.viewmodel.AppViewModel
 import com.example.views.viewmodel.AuthViewModel
@@ -85,6 +87,10 @@ private fun AppWithNavigation(
     val authViewModel: AuthViewModel = viewModel()
     val appState by viewModel.appState.collectAsState()
     val authState by authViewModel.authState.collectAsState()
+    
+    // Initialize relay repository
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val relayRepository = remember { RelayRepository(context) }
     
     // Remember feed scroll position across navigation with state preservation
     val feedListState = androidx.compose.foundation.lazy.rememberLazyListState(
@@ -195,6 +201,12 @@ private fun AppWithNavigation(
             "appearance" -> {
                 AppearanceSettingsScreen(
                     onBackClick = { viewModel.updateCurrentScreen("settings") }
+                )
+            }
+            "relays" -> {
+                RelayManagementScreen(
+                    onBackClick = { viewModel.updateCurrentScreen("dashboard") },
+                    relayRepository = relayRepository
                 )
             }
             "user_profile" -> {
