@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.platform.LocalContext
 import com.example.views.data.Author
 import com.example.views.data.Note
 import com.example.views.data.SampleData
@@ -89,7 +90,7 @@ private fun AppWithNavigation(
     val authState by authViewModel.authState.collectAsState()
     
     // Initialize relay repository
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val relayRepository = remember { RelayRepository(context) }
     
     // Remember feed scroll position across navigation with state preservation
@@ -134,8 +135,37 @@ private fun AppWithNavigation(
         }
     }
     
-    // Optimized navigation - minimal recomposition scope
-    when (appState.currentScreen) {
+    // Optimized navigation with Material Motion transitions
+    AnimatedContent(
+        targetState = appState.currentScreen,
+        transitionSpec = {
+            when {
+                // Thread view uses shared x-axis flow (forward navigation)
+                targetState == "thread" && initialState != "thread" -> {
+                    MaterialMotion.SharedAxisX.enterTransition(forward = true) togetherWith
+                    MaterialMotion.SharedAxisX.exitTransition(forward = true)
+                }
+                // Returning from thread view uses shared x-axis flow (backward navigation)
+                initialState == "thread" && targetState != "thread" -> {
+                    MaterialMotion.SharedAxisX.enterTransition(forward = false) togetherWith
+                    MaterialMotion.SharedAxisX.exitTransition(forward = false)
+                }
+                // Bottom navigation changes use fade through
+                (initialState in listOf("dashboard", "profile", "relays", "messages", "user_profile") &&
+                 targetState in listOf("dashboard", "profile", "relays", "messages", "user_profile")) -> {
+                    MaterialMotion.FadeThrough.enterTransition() togetherWith
+                    MaterialMotion.FadeThrough.exitTransition()
+                }
+                // Default transition for other cases
+                else -> {
+                    MaterialMotion.FadeThrough.enterTransition() togetherWith
+                    MaterialMotion.FadeThrough.exitTransition()
+                }
+            }
+        },
+        label = "screen_transition"
+    ) { currentScreen ->
+        when (currentScreen) {
             "dashboard" -> {
                 DashboardScreen(
                     isSearchMode = appState.isSearchMode,
@@ -195,6 +225,11 @@ private fun AppWithNavigation(
                     onNavigateTo = { screen -> 
                         viewModel.updatePreviousScreen("settings")
                         viewModel.updateCurrentScreen(screen)
+                    },
+                    onBugReportClick = {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                        intent.data = android.net.Uri.parse("https://github.com/TekkadanPlays/ribbit-android/issues")
+                        context.startActivity(intent)
                     }
                 )
             }
@@ -256,7 +291,11 @@ private fun AppWithNavigation(
                     ModernThreadViewScreen(
                         note = note,
                         comments = sampleComments,
-                        onBackClick = { viewModel.updateCurrentScreen("dashboard") },
+                        onBackClick = { 
+                            // Return to the source screen
+                            val sourceScreen = appState.threadSourceScreen ?: "dashboard"
+                            viewModel.updateCurrentScreen(sourceScreen)
+                        },
                         onLike = { noteId -> /* TODO: Handle like */ },
                         onShare = { noteId -> /* TODO: Handle share */ },
                         onComment = { noteId -> /* TODO: Handle comment */ },
@@ -273,6 +312,7 @@ private fun AppWithNavigation(
                     )
                 }
             }
+        }
     }
 }
 

@@ -149,7 +149,8 @@ private fun getModernMenuItems(): List<ModernSidebarMenuItem> = listOf(
     ModernSidebarMenuItem("relays", "Relays", Icons.Default.Router),
     ModernSidebarMenuItem("bookmarks", "Bookmarks", Icons.Default.Star),
     ModernSidebarMenuItem("lists", "Lists", Icons.AutoMirrored.Filled.List),
-    ModernSidebarMenuItem("bug_report", "Report a Bug", Icons.Outlined.BugReport)
+    ModernSidebarMenuItem("login", "Log In", Icons.Outlined.Login),
+    ModernSidebarMenuItem("settings", "Settings", Icons.Outlined.Settings)
 )
 
 @Preview(showBackground = true)

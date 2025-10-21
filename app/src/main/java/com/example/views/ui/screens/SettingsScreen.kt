@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onNavigateTo: (String) -> Unit = {},
+    onBugReportClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -72,6 +74,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
             )
             
+            SettingsItem(icon = Icons.Outlined.BugReport, title = "Report a Bug", onClick = onBugReportClick)
             SettingsItem(icon = Icons.Outlined.Info, title = "About", onClick = { onNavigateTo("about") })
             
             Spacer(modifier = Modifier.height(16.dp))

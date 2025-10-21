@@ -83,6 +83,9 @@ fun DashboardScreen(
     // Pull-to-refresh state
     var isRefreshing by remember { mutableStateOf(false) }
     
+    // Feed view state
+    var currentFeedView by remember { mutableStateOf("Home") }
+    
     // Use Material3's built-in scroll behavior for top app bar
     val topAppBarState = rememberTopAppBarState()
     val scrollBehavior = if (isSearchMode) {
@@ -122,8 +125,11 @@ fun DashboardScreen(
                 "relays" -> {
                     onNavigateTo("relays")
                 }
-                "bug_report" -> {
-                    uriHandler.openUri("https://github.com/TekkadanPlays/ribbit-android/issues")
+                "login" -> {
+                    onLoginClick?.invoke()
+                }
+                "settings" -> {
+                    onNavigateTo("settings")
                 }
                 else -> viewModel.onSidebarItemClick(itemId)
             }
@@ -166,7 +172,7 @@ fun DashboardScreen(
                 } else {
                     // Normal mode - show scrollable header
                     AdaptiveHeader(
-                        title = "Ribbit",
+                        title = "ribbit",
                         isSearchMode = false,
                         searchQuery = androidx.compose.ui.text.input.TextFieldValue(""),
                         onSearchQueryChange = { },
@@ -192,7 +198,9 @@ fun DashboardScreen(
                         onClearSearch = { },
                         onLoginClick = onLoginClick,
                         isGuest = authState.isGuest,
-                        scrollBehavior = scrollBehavior
+                        scrollBehavior = scrollBehavior,
+                        currentFeedView = currentFeedView,
+                        onFeedViewChange = { newFeedView -> currentFeedView = newFeedView }
                     )
                 }
             },
@@ -217,6 +225,7 @@ fun DashboardScreen(
                                         }
                                     }
                                     "search" -> onSearchModeChange(true)
+                                    "relays" -> onNavigateTo("relays")
                                     "profile" -> onNavigateTo("user_profile")
                                     else -> { /* Other destinations not implemented yet */ }
                                 }

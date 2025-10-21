@@ -1,8 +1,12 @@
 package com.example.views.ui.components
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -11,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -24,7 +29,7 @@ import androidx.compose.ui.unit.offset
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdaptiveHeader(
-    title: String = "Ribbit",
+    title: String = "ribbit",
     isSearchMode: Boolean = false,
     showBackArrow: Boolean = false,
     searchQuery: TextFieldValue = TextFieldValue(""),
@@ -38,10 +43,20 @@ fun AdaptiveHeader(
     onLoginClick: (() -> Unit)? = null,
     isGuest: Boolean = true,
     scrollBehavior: TopAppBarScrollBehavior? = null,
+    currentFeedView: String = "Home",
+    onFeedViewChange: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    
+    // Feed dropdown state
+    var feedDropdownExpanded by remember { mutableStateOf(false) }
+    val rotationAngle by animateFloatAsState(
+        targetValue = if (feedDropdownExpanded) 180f else 0f,
+        animationSpec = tween(200),
+        label = "caret_rotation"
+    )
     
     // Show keyboard when search mode is activated
     LaunchedEffect(isSearchMode) {
@@ -100,15 +115,97 @@ fun AdaptiveHeader(
                     )
                 )
             } else {
-                // Normal mode - show title
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // Normal mode - show title with or without dropdown based on context
+                if (showBackArrow) {
+                    // Thread view - just show title without dropdown
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    // Dashboard view - show title with dropdown
+                    Box {
+                        Row(
+                            modifier = Modifier
+                                .clickable { feedDropdownExpanded = true }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Feed view selector",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .rotate(rotationAngle)
+                            )
+                        }
+                        
+                        // Feed view dropdown menu
+                        DropdownMenu(
+                            expanded = feedDropdownExpanded,
+                            onDismissRequest = { feedDropdownExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Home") },
+                                leadingIcon = { 
+                                    Icon(
+                                        Icons.Outlined.Home, 
+                                        contentDescription = null,
+                                        tint = if (currentFeedView == "Home") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    ) 
+                                },
+                                onClick = { 
+                                    onFeedViewChange("Home")
+                                    feedDropdownExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Popular") },
+                                leadingIcon = { 
+                                    Icon(
+                                        Icons.Outlined.TrendingUp, 
+                                        contentDescription = null,
+                                        tint = if (currentFeedView == "Popular") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    ) 
+                                },
+                                onClick = { 
+                                    onFeedViewChange("Popular")
+                                    feedDropdownExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Latest") },
+                                leadingIcon = { 
+                                    Icon(
+                                        Icons.Outlined.Schedule, 
+                                        contentDescription = null,
+                                        tint = if (currentFeedView == "Latest") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    ) 
+                                },
+                                onClick = { 
+                                    onFeedViewChange("Latest")
+                                    feedDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
             }
         },
         navigationIcon = {
@@ -122,7 +219,7 @@ fun AdaptiveHeader(
                     )
                 }
             } else {
-                // Normal mode - show menu button
+                // Normal mode - show hamburger menu
                 IconButton(onClick = onMenuClick) {
                     Icon(
                         imageVector = Icons.Default.Menu,
@@ -136,7 +233,7 @@ fun AdaptiveHeader(
             if (isSearchMode) {
                 // Search mode - no actions, just the clear button in the text field
             } else {
-                // Normal mode - show normal actions
+                // Normal mode - show search, filter, and profile avatar
                 Row {
                     // Search button
                     IconButton(onClick = onSearchClick) {
@@ -156,12 +253,26 @@ fun AdaptiveHeader(
                         )
                     }
                     
-                    // More options menu
-                    MoreOptionsMenu(
-                        onMoreOptionClick = onMoreOptionClick,
-                        onLoginClick = onLoginClick,
-                        isGuest = isGuest
-                    )
+                    // Profile avatar
+                    IconButton(onClick = onLoginClick ?: {}) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.primary,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "U", // User initial
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -170,65 +281,4 @@ fun AdaptiveHeader(
     )
 }
 
-@Composable
-private fun MoreOptionsMenu(
-    onMoreOptionClick: (String) -> Unit,
-    onLoginClick: (() -> Unit)? = null,
-    isGuest: Boolean = true
-) {
-    var expanded by remember { mutableStateOf(false) }
-    
-    Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "More options",
-                tint = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            // Show login option only for guests
-            if (isGuest && onLoginClick != null) {
-                DropdownMenuItem(
-                    text = { Text("Log In") },
-                    leadingIcon = { Icon(Icons.Outlined.Login, contentDescription = null) },
-                    onClick = { 
-                        onLoginClick()
-                        expanded = false
-                    }
-                )
-                HorizontalDivider()
-            }
-            
-            DropdownMenuItem(
-                text = { Text("Post View") },
-                leadingIcon = { Icon(Icons.Outlined.Create, contentDescription = null) },
-                onClick = { 
-                    onMoreOptionClick("post_view")
-                    expanded = false
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("Refresh") },
-                leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                onClick = { 
-                    onMoreOptionClick("refresh")
-                    expanded = false
-                }
-            )
-            HorizontalDivider()
-            DropdownMenuItem(
-                text = { Text("Settings") },
-                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                onClick = { 
-                    onMoreOptionClick("settings")
-                    expanded = false
-                }
-            )
-        }
-    }
-}
 
