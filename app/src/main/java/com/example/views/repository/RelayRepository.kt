@@ -15,6 +15,7 @@ import com.example.views.data.UserRelay
 import com.example.views.data.RelayInformation
 import com.example.views.data.RelayConnectionStatus
 import com.example.views.data.RelayHealth
+import com.example.views.cache.Nip11CacheManager
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
@@ -33,6 +34,7 @@ class RelayRepository(private val context: Context) {
     }
     
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences(RELAYS_PREFS, Context.MODE_PRIVATE)
+    private val nip11CacheManager = Nip11CacheManager(context)
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -49,6 +51,8 @@ class RelayRepository(private val context: Context) {
     
     init {
         loadRelaysFromStorage()
+        // Start background refresh of stale NIP-11 data
+        startBackgroundRefresh()
     }
     
     /**
@@ -65,12 +69,18 @@ class RelayRepository(private val context: Context) {
                 return@withContext Result.failure(Exception("Relay already exists"))
             }
             
-            // Create new relay WITHOUT NIP-11 info (add immediately)
+            // Check cache first for immediate NIP-11 info
+            val cachedInfo = nip11CacheManager.getCachedRelayInfo(normalizedUrl)
+            
+            // Create new relay with cached NIP-11 info if available
             val newRelay = UserRelay(
                 url = normalizedUrl,
                 read = read,
                 write = write,
-                addedAt = System.currentTimeMillis()
+                addedAt = System.currentTimeMillis(),
+                info = cachedInfo,
+                isOnline = cachedInfo != null,
+                lastChecked = if (cachedInfo != null) System.currentTimeMillis() else 0L
             )
             
             // Add to list immediately for fast UI response
@@ -80,26 +90,33 @@ class RelayRepository(private val context: Context) {
             // Persist to storage
             saveRelaysToStorage(updatedRelays)
             
-            Log.d(TAG, "✅ Added relay: $normalizedUrl")
+            Log.d(TAG, "✅ Added relay: $normalizedUrl ${if (cachedInfo != null) "(with cached NIP-11)" else "(fetching NIP-11)"}")
             
-            // Fetch NIP-11 information in background (non-blocking)
-            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val relayWithInfo = fetchRelayInfo(newRelay)
-                    
-                    // Update the relay with NIP-11 info
-                    val currentRelays = _relays.value
-                    val relayIndex = currentRelays.indexOfFirst { it.url == normalizedUrl }
-                    if (relayIndex != -1) {
-                        val updatedList = currentRelays.toMutableList().apply {
-                            set(relayIndex, relayWithInfo)
+            // Fetch fresh NIP-11 information in background if not cached or stale
+            if (cachedInfo == null || nip11CacheManager.getStaleRelayUrls().contains(normalizedUrl)) {
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val freshInfo = nip11CacheManager.getRelayInfo(normalizedUrl, forceRefresh = true)
+                        
+                        // Update the relay with fresh NIP-11 info
+                        val currentRelays = _relays.value
+                        val relayIndex = currentRelays.indexOfFirst { it.url == normalizedUrl }
+                        if (relayIndex != -1) {
+                            val updatedRelay = currentRelays[relayIndex].copy(
+                                info = freshInfo,
+                                isOnline = freshInfo != null,
+                                lastChecked = System.currentTimeMillis()
+                            )
+                            val updatedList = currentRelays.toMutableList().apply {
+                                set(relayIndex, updatedRelay)
+                            }
+                            _relays.value = updatedList
+                            saveRelaysToStorage(updatedList)
+                            Log.d(TAG, "✅ Updated relay with fresh NIP-11 info: $normalizedUrl")
                         }
-                        _relays.value = updatedList
-                        saveRelaysToStorage(updatedList)
-                        Log.d(TAG, "✅ Updated relay with NIP-11 info: $normalizedUrl")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "⚠️ Failed to fetch NIP-11 info for $normalizedUrl: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "⚠️ Failed to fetch NIP-11 info for $normalizedUrl: ${e.message}")
                 }
             }
             
@@ -177,7 +194,15 @@ class RelayRepository(private val context: Context) {
             }
             
             val relay = existingRelays[relayIndex]
-            val updatedRelay = fetchRelayInfo(relay)
+            
+            // Force refresh from cache manager
+            val freshInfo = nip11CacheManager.getRelayInfo(url, forceRefresh = true)
+            
+            val updatedRelay = relay.copy(
+                info = freshInfo,
+                isOnline = freshInfo != null,
+                lastChecked = System.currentTimeMillis()
+            )
             
             val updatedRelays = existingRelays.toMutableList().apply {
                 set(relayIndex, updatedRelay)
@@ -239,46 +264,34 @@ class RelayRepository(private val context: Context) {
     }
     
     /**
-     * Fetch NIP-11 relay information
+     * Get NIP-11 cache manager for external access
      */
-    private suspend fun fetchRelayInfo(relay: UserRelay): UserRelay = withContext(Dispatchers.IO) {
-        try {
-            // Convert WebSocket URL to HTTP for NIP-11
-            val httpUrl = relay.url.replace("wss://", "https://").replace("ws://", "http://")
-            
-            val request = Request.Builder()
-                .url(httpUrl)
-                .header("Accept", "application/nostr+json")
-                .build()
-            
-            val response = httpClient.newCall(request).execute()
-            
-            if (response.isSuccessful) {
-                val responseBody = response.body?.string() ?: ""
-                if (responseBody.startsWith("{")) {
-                    val relayInfo = JSON.decodeFromString<RelayInformation>(responseBody)
-                    val updatedRelay = relay.copy(
-                        info = relayInfo,
-                        isOnline = true,
-                        lastChecked = System.currentTimeMillis()
-                    )
-                    Log.d(TAG, "✅ Fetched NIP-11 info for ${relay.url}: ${relayInfo.name}")
-                    return@withContext updatedRelay
+    fun getNip11CacheManager(): Nip11CacheManager = nip11CacheManager
+    
+    /**
+     * Start background refresh of stale NIP-11 data
+     */
+    private fun startBackgroundRefresh() {
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Small delay to let the app initialize
+                kotlinx.coroutines.delay(2000)
+                
+                // Refresh stale relay information
+                nip11CacheManager.refreshStaleRelays(
+                    scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
+                ) {
+                    Log.d(TAG, "🎉 Background NIP-11 refresh completed")
                 }
+                
+                // Preload relay info for current relays
+                val currentRelays = _relays.value
+                val relayUrls = currentRelays.map { it.url }
+                nip11CacheManager.preloadRelayInfo(relayUrls, kotlinx.coroutines.CoroutineScope(Dispatchers.IO))
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Background refresh failed: ${e.message}", e)
             }
-            
-            // If we get here, the request failed or returned invalid data
-            relay.copy(
-                isOnline = false,
-                lastChecked = System.currentTimeMillis()
-            )
-            
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Failed to fetch NIP-11 info for ${relay.url}: ${e.message}")
-            relay.copy(
-                isOnline = false,
-                lastChecked = System.currentTimeMillis()
-            )
         }
     }
     
