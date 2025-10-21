@@ -104,6 +104,10 @@ private fun AppWithNavigation(
         initialFirstVisibleItemIndex = appState.userProfileScrollPosition
     )
     
+    // Track TopAppBarState for bidirectional inheritance
+    var dashboardTopAppBarState by remember { mutableStateOf<androidx.compose.material3.TopAppBarState?>(null) }
+    var threadTopAppBarState by remember { mutableStateOf<androidx.compose.material3.TopAppBarState?>(null) }
+    
     // Save scroll positions when they change
     LaunchedEffect(feedListState.firstVisibleItemIndex) {
         viewModel.updateFeedScrollPosition(feedListState.firstVisibleItemIndex)
@@ -135,37 +139,8 @@ private fun AppWithNavigation(
         }
     }
     
-    // Optimized navigation with Material Motion transitions
-    AnimatedContent(
-        targetState = appState.currentScreen,
-        transitionSpec = {
-            when {
-                // Thread view uses shared x-axis flow (forward navigation)
-                targetState == "thread" && initialState != "thread" -> {
-                    MaterialMotion.SharedAxisX.enterTransition(forward = true) togetherWith
-                    MaterialMotion.SharedAxisX.exitTransition(forward = true)
-                }
-                // Returning from thread view uses shared x-axis flow (backward navigation)
-                initialState == "thread" && targetState != "thread" -> {
-                    MaterialMotion.SharedAxisX.enterTransition(forward = false) togetherWith
-                    MaterialMotion.SharedAxisX.exitTransition(forward = false)
-                }
-                // Bottom navigation changes use fade through
-                (initialState in listOf("dashboard", "profile", "relays", "messages", "user_profile") &&
-                 targetState in listOf("dashboard", "profile", "relays", "messages", "user_profile")) -> {
-                    MaterialMotion.FadeThrough.enterTransition() togetherWith
-                    MaterialMotion.FadeThrough.exitTransition()
-                }
-                // Default transition for other cases
-                else -> {
-                    MaterialMotion.FadeThrough.enterTransition() togetherWith
-                    MaterialMotion.FadeThrough.exitTransition()
-                }
-            }
-        },
-        label = "screen_transition"
-    ) { currentScreen ->
-        when (currentScreen) {
+    // Optimized navigation - minimal recomposition scope
+    when (appState.currentScreen) {
             "dashboard" -> {
                 DashboardScreen(
                     isSearchMode = appState.isSearchMode,
@@ -185,6 +160,8 @@ private fun AppWithNavigation(
                     },
                     onScrollToTop = { /* Scroll to top handled in DashboardScreen */ },
                     onLoginClick = onLoginClick,
+                    onTopAppBarStateChange = { state -> dashboardTopAppBarState = state },
+                    initialTopAppBarState = threadTopAppBarState,
                     listState = feedListState
                 )
             }
@@ -308,11 +285,12 @@ private fun AppWithNavigation(
                             }
                         },
                         onCommentLike = { commentId -> /* TODO: Handle comment like */ },
-                        onCommentReply = { commentId -> /* TODO: Handle comment reply */ }
+                        onCommentReply = { commentId -> /* TODO: Handle comment reply */ },
+                        initialTopAppBarState = dashboardTopAppBarState,
+                        onTopAppBarStateChange = { state -> threadTopAppBarState = state }
                     )
                 }
             }
-        }
     }
 }
 

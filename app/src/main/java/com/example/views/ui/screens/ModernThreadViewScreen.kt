@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -84,6 +85,8 @@ fun ModernThreadViewScreen(
     onProfileClick: (String) -> Unit = {},
     onCommentLike: (String) -> Unit = {},
     onCommentReply: (String) -> Unit = {},
+    initialTopAppBarState: TopAppBarState? = null,
+    onTopAppBarStateChange: (TopAppBarState) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -94,14 +97,29 @@ fun ModernThreadViewScreen(
     val commentStates = remember { mutableStateMapOf<String, CommentState>() }
     var expandedControlsCommentId by remember { mutableStateOf<String?>(null) }
     
+    // Inherit the TopAppBarState from the dashboard for seamless transition
+    val topAppBarState = rememberTopAppBarState(
+        initialHeightOffsetLimit = initialTopAppBarState?.heightOffsetLimit ?: 0f,
+        initialHeightOffset = initialTopAppBarState?.heightOffset ?: 0f,
+        initialContentOffset = initialTopAppBarState?.contentOffset ?: 0f
+    )
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
+    
+    // Report TopAppBarState changes back to parent for reverse inheritance
+    LaunchedEffect(topAppBarState) {
+        onTopAppBarStateChange(topAppBarState)
+    }
+    
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             AdaptiveHeader(
-                title = "Thread",
+                title = "",
                 showBackArrow = true,
                 onBackClick = onBackClick,
                 onFilterClick = { /* TODO: Handle filter/sort */ },
-                onMoreOptionClick = { /* TODO: Handle more options */ }
+                onMoreOptionClick = { /* TODO: Handle more options */ },
+                scrollBehavior = scrollBehavior
             )
         }
     ) { paddingValues ->

@@ -70,6 +70,8 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = viewModel(),
     authViewModel: AuthViewModel = viewModel(),
     onLoginClick: (() -> Unit)? = null,
+    onTopAppBarStateChange: (TopAppBarState) -> Unit = {},
+    initialTopAppBarState: TopAppBarState? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -87,11 +89,21 @@ fun DashboardScreen(
     var currentFeedView by remember { mutableStateOf("Home") }
     
     // Use Material3's built-in scroll behavior for top app bar
-    val topAppBarState = rememberTopAppBarState()
+    // Inherit state from thread view when navigating back
+    val topAppBarState = rememberTopAppBarState(
+        initialHeightOffsetLimit = initialTopAppBarState?.heightOffsetLimit ?: 0f,
+        initialHeightOffset = initialTopAppBarState?.heightOffset ?: 0f,
+        initialContentOffset = initialTopAppBarState?.contentOffset ?: 0f
+    )
     val scrollBehavior = if (isSearchMode) {
         TopAppBarDefaults.pinnedScrollBehavior(topAppBarState)
     } else {
         TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
+    }
+    
+    // Notify parent of TopAppBarState changes for thread view inheritance
+    LaunchedEffect(topAppBarState) {
+        onTopAppBarStateChange(topAppBarState)
     }
     
     // ✅ PERFORMANCE: Optimized search filtering (Thread view pattern)
