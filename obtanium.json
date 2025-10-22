@@ -19,6 +19,30 @@
   "banner": "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/banner.png",
   "releases": [
     {
+      "version": "1.1",
+      "versionCode": 2,
+      "releaseDate": "2025-01-22",
+      "downloadUrl": "https://github.com/TekkadanPlays/ribbit-android/releases/download/v1.1/ribbit-v1.1.apk",
+      "changelog": "Enhanced navigation transitions with proper Material Design shared axis patterns, updated app icons, and improved user experience",
+      "minSdk": 35,
+      "targetSdk": 36,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "features": [
+        "Modern Material Design 3 UI with proper shared axis transitions",
+        "Jetpack Compose architecture with improved navigation",
+        "State preservation across navigation with history tracking",
+        "Thread view with comment hierarchy and smooth transitions",
+        "Profile management with drill-down animations",
+        "Search functionality with fade-through transitions",
+        "Responsive design with consistent motion patterns",
+        "Updated frog-themed app icons",
+        "Proper forward/backward navigation direction detection"
+      ]
+    },
+    {
       "version": "1.0",
       "versionCode": 1,
       "releaseDate": "2024-01-01",

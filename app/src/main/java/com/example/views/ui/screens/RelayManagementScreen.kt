@@ -586,7 +586,7 @@ private fun RelayAddSectionNoPadding(
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(focusRequester ?: FocusRequester())
+                .focusRequester(focusRequester ?: remember { FocusRequester() })
                 .onFocusChanged { focusState ->
                     onFocusChanged?.invoke(focusState.isFocused)
                 },
