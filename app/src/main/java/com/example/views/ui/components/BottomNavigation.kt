@@ -53,5 +53,5 @@ enum class BottomNavDestinations(
     SEARCH("search", "Search", Icons.Default.Search),
     RELAYS("relays", "Relays", Icons.Default.Router),
     MESSAGES("messages", "Messages", Icons.Default.Email),
-    PROFILE("profile", "Profile", Icons.Default.Person)
+    NOTIFICATIONS("notifications", "Notifications", Icons.Default.Notifications)
 }

@@ -6,11 +6,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -30,6 +38,7 @@ import com.example.views.ui.screens.AppearanceSettingsScreen
 import com.example.views.ui.screens.DashboardScreen
 import com.example.views.ui.screens.ProfileScreen
 import com.example.views.ui.screens.SettingsScreen
+import com.example.views.ui.screens.NotificationsScreen
 import com.example.views.ui.screens.ModernThreadViewScreen
 import com.example.views.ui.screens.RelayManagementScreen
 import com.example.views.ui.screens.createSampleCommentThreads
@@ -37,6 +46,13 @@ import com.example.views.repository.RelayRepository
 import com.example.views.ui.theme.ViewsTheme
 import com.example.views.viewmodel.AppViewModel
 import com.example.views.viewmodel.AuthViewModel
+
+data class NavigationEntry(
+    val screen: String,
+    val noteId: String? = null,
+    val authorId: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 class MainActivity : ComponentActivity() {
     
@@ -54,6 +70,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
         
         setContent {
             ViewsTheme {
@@ -104,9 +121,63 @@ private fun AppWithNavigation(
         initialFirstVisibleItemIndex = appState.userProfileScrollPosition
     )
     
-    // Track TopAppBarState for bidirectional inheritance
+    // Track TopAppBarState for dashboard (thread view uses predictive back)
     var dashboardTopAppBarState by remember { mutableStateOf<androidx.compose.material3.TopAppBarState?>(null) }
-    var threadTopAppBarState by remember { mutableStateOf<androidx.compose.material3.TopAppBarState?>(null) }
+    
+    // Thread state persistence - remember scroll position for each thread
+    var threadStates by remember { mutableStateOf<Map<String, LazyListState>>(emptyMap()) }
+    
+    // Profile state persistence - remember scroll position for each profile
+    var profileStates by remember { mutableStateOf<Map<String, LazyListState>>(emptyMap()) }
+    
+    // Navigation history - tracks the full exploration path
+    var navigationHistory by remember { mutableStateOf<List<NavigationEntry>>(listOf()) }
+    
+    // Function to get the root source (where we originally came from)
+    fun getRootSource(): String {
+        return navigationHistory.firstOrNull()?.screen ?: "dashboard"
+    }
+    
+    // Function to get the immediate source (where we came from directly)
+    fun getImmediateSource(): String {
+        return appState.threadSourceScreen ?: "dashboard"
+    }
+    
+    // Function to add entry to navigation history
+    fun addToHistory(screen: String, noteId: String? = null, authorId: String? = null) {
+        navigationHistory = navigationHistory + NavigationEntry(screen, noteId, authorId)
+    }
+    
+    // Function to go back in history
+    fun goBackInHistory(): String? {
+        return if (navigationHistory.size > 1) {
+            navigationHistory = navigationHistory.dropLast(1)
+            navigationHistory.lastOrNull()?.screen
+        } else {
+            null
+        }
+    }
+    
+    // Function to reset history for new exploration
+    fun resetHistory() {
+        navigationHistory = listOf()
+    }
+    
+    // Function to get or create thread state for a specific note
+    @Composable
+    fun getThreadState(noteId: String): LazyListState {
+        return threadStates[noteId] ?: rememberLazyListState().also { newState ->
+            threadStates = threadStates + (noteId to newState)
+        }
+    }
+    
+    // Function to get or create profile state for a specific author
+    @Composable
+    fun getProfileState(authorId: String): LazyListState {
+        return profileStates[authorId] ?: rememberLazyListState().also { newState ->
+            profileStates = profileStates + (authorId to newState)
+        }
+    }
     
     // Save scroll positions when they change
     LaunchedEffect(feedListState.firstVisibleItemIndex) {
@@ -139,8 +210,96 @@ private fun AppWithNavigation(
         }
     }
     
-    // Optimized navigation - minimal recomposition scope
-    when (appState.currentScreen) {
+    // Material Design list item to details page transition
+    AnimatedContent(
+        targetState = appState.currentScreen,
+        transitionSpec = {
+            when {
+                // List item to details: Thread view expands from note card
+                targetState == "thread" && initialState != "thread" -> {
+                    slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) + fadeIn(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) togetherWith
+                    slideOutVertically(
+                        targetOffsetY = { -it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    ) + fadeOut(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    )
+                }
+                // List item to details: Profile view expands from profile card
+                targetState == "profile" && initialState != "thread" && initialState != "profile" -> {
+                    slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) + fadeIn(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) togetherWith
+                    slideOutVertically(
+                        targetOffsetY = { -it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    ) + fadeOut(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    )
+                }
+                // Details to list item: Thread view contracts back to note card
+                initialState == "thread" && targetState != "thread" -> {
+                    slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) + fadeIn(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) togetherWith
+                    slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    ) + fadeOut(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    )
+                }
+                // Details to list item: Profile view contracts back to profile card
+                initialState == "profile" && targetState != "thread" -> {
+                    slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) + fadeIn(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) togetherWith
+                    slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    ) + fadeOut(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    )
+                }
+                // Thread to profile: Return to profile from thread
+                initialState == "thread" && targetState == "profile" -> {
+                    slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) + fadeIn(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedDecelerate)
+                    ) togetherWith
+                    slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    ) + fadeOut(
+                        animationSpec = tween(300, easing = MaterialMotion.EasingEmphasizedAccelerate)
+                    )
+                }
+                // Other transitions use fade through
+                else -> {
+                    MaterialMotion.FadeThrough.enterTransition() togetherWith
+                    MaterialMotion.FadeThrough.exitTransition()
+                }
+            }
+        },
+        label = "list_to_details_transition"
+    ) { currentScreen ->
+        when (currentScreen) {
             "dashboard" -> {
                 DashboardScreen(
                     isSearchMode = appState.isSearchMode,
@@ -149,6 +308,11 @@ private fun AppWithNavigation(
                         val author = SampleData.sampleNotes.find { it.author.id == authorId }?.author
                         if (author != null) {
                             viewModel.updateSelectedAuthor(author)
+                            viewModel.updateThreadSourceScreen("dashboard")
+                            // Initialize navigation history
+                            resetHistory()
+                            addToHistory("dashboard")
+                            addToHistory("profile", authorId = author.id)
                             viewModel.updateCurrentScreen("profile")
                         }
                     },
@@ -156,34 +320,55 @@ private fun AppWithNavigation(
                     onThreadClick = { note ->
                         viewModel.updateSelectedNote(note)
                         viewModel.updateThreadSourceScreen("dashboard")
+                        // Initialize navigation history
+                        resetHistory()
+                        addToHistory("dashboard")
+                        addToHistory("thread", noteId = note.id)
                         viewModel.updateCurrentScreen("thread")
                     },
                     onScrollToTop = { /* Scroll to top handled in DashboardScreen */ },
                     onLoginClick = onLoginClick,
                     onTopAppBarStateChange = { state -> dashboardTopAppBarState = state },
-                    initialTopAppBarState = threadTopAppBarState,
                     listState = feedListState
                 )
             }
             "profile" -> {
                 appState.selectedAuthor?.let { author ->
                     val authorNotes = SampleData.sampleNotes.filter { it.author.id == author.id }
+                    val profileListState = getProfileState(author.id)
+                    
                     ProfileScreen(
                         author = author,
                         authorNotes = authorNotes,
-                        onBackClick = { viewModel.updateCurrentScreen("dashboard") },
+                        listState = profileListState,
+                        onBackClick = { 
+                            // Go back in navigation history
+                            val previousScreen = goBackInHistory()
+                            if (previousScreen != null) {
+                                viewModel.updateCurrentScreen(previousScreen)
+                            } else {
+                                // Fallback to immediate source
+                                val sourceScreen = appState.threadSourceScreen ?: "dashboard"
+                                viewModel.updateCurrentScreen(sourceScreen)
+                            }
+                        },
                         onNoteClick = { note ->
                             viewModel.updateSelectedNote(note)
                             viewModel.updateThreadSourceScreen("profile")
+                            // Add to navigation history
+                            addToHistory("thread", noteId = note.id)
                             viewModel.updateCurrentScreen("thread")
                         },
                         onProfileClick = { authorId ->
                             val newAuthor = SampleData.sampleNotes.find { it.author.id == authorId }?.author
                             if (newAuthor != null) {
                                 viewModel.updateSelectedAuthor(newAuthor)
+                                // Update thread source to remember we came from profile
+                                viewModel.updateThreadSourceScreen("profile")
+                                // Add to navigation history
+                                addToHistory("profile", authorId = newAuthor.id)
                             }
-                        },
-                        listState = profileListState
+                        }
                     )
                 }
             }
@@ -197,28 +382,75 @@ private fun AppWithNavigation(
                 )
             }
             "settings" -> {
-                SettingsScreen(
-                    onBackClick = { viewModel.updateCurrentScreen("dashboard") },
-                    onNavigateTo = { screen -> 
-                        viewModel.updatePreviousScreen("settings")
-                        viewModel.updateCurrentScreen(screen)
+                AnimatedContent(
+                    targetState = appState.currentScreen,
+                    transitionSpec = {
+                        when {
+                            // Settings sub-pages use shared x-axis transitions
+                            targetState == "appearance" && initialState == "settings" -> {
+                                MaterialMotion.SharedAxisX.enterTransition() togetherWith
+                                MaterialMotion.SharedAxisX.exitTransition()
+                            }
+                            targetState == "settings" && initialState == "appearance" -> {
+                                MaterialMotion.SharedAxisX.enterTransition() togetherWith
+                                MaterialMotion.SharedAxisX.exitTransition()
+                            }
+                            else -> {
+                                MaterialMotion.FadeThrough.enterTransition() togetherWith
+                                MaterialMotion.FadeThrough.exitTransition()
+                            }
+                        }
                     },
-                    onBugReportClick = {
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                        intent.data = android.net.Uri.parse("https://github.com/TekkadanPlays/ribbit-android/issues")
-                        context.startActivity(intent)
+                    label = "settings_transition"
+                ) { currentScreen ->
+                    when (currentScreen) {
+                        "settings" -> {
+                            SettingsScreen(
+                                onBackClick = { viewModel.updateCurrentScreen("dashboard") },
+                                onNavigateTo = { screen -> 
+                                    viewModel.updatePreviousScreen("settings")
+                                    viewModel.updateCurrentScreen(screen)
+                                },
+                                onBugReportClick = {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                                    intent.data = android.net.Uri.parse("https://github.com/TekkadanPlays/ribbit-android/issues")
+                                    context.startActivity(intent)
+                                }
+                            )
+                        }
+                        "appearance" -> {
+                            AppearanceSettingsScreen(
+                                onBackClick = { viewModel.updateCurrentScreen("settings") }
+                            )
+                        }
                     }
-                )
-            }
-            "appearance" -> {
-                AppearanceSettingsScreen(
-                    onBackClick = { viewModel.updateCurrentScreen("settings") }
-                )
+                }
             }
             "relays" -> {
                 RelayManagementScreen(
                     onBackClick = { viewModel.updateCurrentScreen("dashboard") },
                     relayRepository = relayRepository
+                )
+            }
+            "notifications" -> {
+                NotificationsScreen(
+                    onBackClick = { viewModel.updateCurrentScreen("dashboard") },
+                    onNoteClick = { note ->
+                        viewModel.updateSelectedNote(note)
+                        viewModel.updateThreadSourceScreen("notifications")
+                        viewModel.updateCurrentScreen("thread")
+                    },
+                    onLike = { noteId -> /* TODO: Handle like */ },
+                    onShare = { noteId -> /* TODO: Handle share */ },
+                    onComment = { noteId -> /* TODO: Handle comment */ },
+                    onProfileClick = { authorId ->
+                        val author = SampleData.sampleNotes.find { it.author.id == authorId }?.author
+                        if (author != null) {
+                            viewModel.updateSelectedAuthor(author)
+                            viewModel.updateThreadSourceScreen("notifications")
+                            viewModel.updateCurrentScreen("profile")
+                        }
+                    }
                 )
             }
             "user_profile" -> {
@@ -265,13 +497,22 @@ private fun AppWithNavigation(
             "thread" -> {
                 appState.selectedNote?.let { note ->
                     val sampleComments = createSampleCommentThreads()
+                    val threadListState = getThreadState(note.id)
+                    
                     ModernThreadViewScreen(
                         note = note,
                         comments = sampleComments,
+                        listState = threadListState,
                         onBackClick = { 
-                            // Return to the source screen
-                            val sourceScreen = appState.threadSourceScreen ?: "dashboard"
-                            viewModel.updateCurrentScreen(sourceScreen)
+                            // Go back in navigation history
+                            val previousScreen = goBackInHistory()
+                            if (previousScreen != null) {
+                                viewModel.updateCurrentScreen(previousScreen)
+                            } else {
+                                // Fallback to root source
+                                val sourceScreen = getRootSource()
+                                viewModel.updateCurrentScreen(sourceScreen)
+                            }
                         },
                         onLike = { noteId -> /* TODO: Handle like */ },
                         onShare = { noteId -> /* TODO: Handle share */ },
@@ -281,16 +522,17 @@ private fun AppWithNavigation(
                             if (author != null) {
                                 viewModel.updateSelectedAuthor(author)
                                 viewModel.updateThreadSourceScreen("thread") // Mark that we're coming from thread
+                                // Add to navigation history
+                                addToHistory("profile", authorId = author.id)
                                 viewModel.updateCurrentScreen("profile")
                             }
                         },
                         onCommentLike = { commentId -> /* TODO: Handle comment like */ },
-                        onCommentReply = { commentId -> /* TODO: Handle comment reply */ },
-                        initialTopAppBarState = dashboardTopAppBarState,
-                        onTopAppBarStateChange = { state -> threadTopAppBarState = state }
+                        onCommentReply = { commentId -> /* TODO: Handle comment reply */ }
                     )
                 }
             }
+        }
     }
 }
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,11 +74,11 @@ private val fastAnimation = tween<IntSize>(durationMillis = 150, easing = FastOu
  * - Clean visual hierarchy
  * - Smooth animations without conflicts
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModernThreadViewScreen(
     note: Note,
     comments: List<CommentThread>,
+    listState: LazyListState = rememberLazyListState(),
     onBackClick: () -> Unit = {},
     onLike: (String) -> Unit = {},
     onShare: (String) -> Unit = {},
@@ -85,11 +86,8 @@ fun ModernThreadViewScreen(
     onProfileClick: (String) -> Unit = {},
     onCommentLike: (String) -> Unit = {},
     onCommentReply: (String) -> Unit = {},
-    initialTopAppBarState: TopAppBarState? = null,
-    onTopAppBarStateChange: (TopAppBarState) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val listState = rememberLazyListState()
     var isRefreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     
@@ -97,80 +95,85 @@ fun ModernThreadViewScreen(
     val commentStates = remember { mutableStateMapOf<String, CommentState>() }
     var expandedControlsCommentId by remember { mutableStateOf<String?>(null) }
     
-    // Inherit the TopAppBarState from the dashboard for seamless transition
-    val topAppBarState = rememberTopAppBarState(
-        initialHeightOffsetLimit = initialTopAppBarState?.heightOffsetLimit ?: 0f,
-        initialHeightOffset = initialTopAppBarState?.heightOffset ?: 0f,
-        initialContentOffset = initialTopAppBarState?.contentOffset ?: 0f
-    )
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
+    // No header needed - using predictive back for navigation
     
-    // Report TopAppBarState changes back to parent for reverse inheritance
-    LaunchedEffect(topAppBarState) {
-        onTopAppBarStateChange(topAppBarState)
+    // Use predictive back for smooth gesture navigation
+    androidx.activity.compose.BackHandler {
+        onBackClick()
     }
     
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            AdaptiveHeader(
-                title = "",
-                showBackArrow = true,
-                onBackClick = onBackClick,
-                onFilterClick = { /* TODO: Handle filter/sort */ },
-                onMoreOptionClick = { /* TODO: Handle more options */ },
-                scrollBehavior = scrollBehavior
-            )
-        }
+        modifier = Modifier.fillMaxSize()
     ) { paddingValues ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                isRefreshing = true
-                scope.launch {
-                    delay(1500)
-                    isRefreshing = false
-                }
-            },
-            modifier = Modifier
+        LazyColumn(
+            state = listState,
+            modifier = modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
+            contentPadding = PaddingValues(top = 8.dp)
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 8.dp)
-            ) {
-                // Main note card
-                item(key = "main_note") {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        NoteCard(
-                            note = note,
-                            onLike = onLike,
-                            onShare = onShare,
-                            onComment = onComment,
-                            onProfileClick = onProfileClick,
-                            onNoteClick = { /* Already on thread */ },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        
-                        // Modern divider
-                        Spacer(modifier = Modifier.height(16.dp))
-                        HorizontalDivider(
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
-                
-                // Comments - no animation to prevent recomposition
-                item(key = "unified_comment_tree") {
-                    Column(
+            // Main note card - no pull to refresh, uses predictive back
+            item(key = "main_note") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    NoteCard(
+                        note = note,
+                        onLike = onLike,
+                        onShare = onShare,
+                        onComment = onComment,
+                        onProfileClick = onProfileClick,
+                        onNoteClick = { /* Already on thread */ },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    
+                    // Comment control board - compact, above divider
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        comments.forEach { commentThread ->
+                        // Filter/Sort control for comments
+                        IconButton(
+                            onClick = { /* TODO: Implement comment filtering/sorting */ },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = "Filter/Sort Comments",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    
+                    // Modern divider
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+            
+            // Comments section with pull-to-refresh
+            item(key = "comments_with_refresh") {
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        isRefreshing = true
+                        scope.launch {
+                            delay(1500)
+                            isRefreshing = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        comments.forEachIndexed { index, commentThread ->
                             ModernCommentThreadItem(
                                 commentThread = commentThread,
                                 onLike = onCommentLike,
@@ -182,6 +185,7 @@ fun ModernThreadViewScreen(
                                 onExpandControls = { commentId ->
                                     expandedControlsCommentId = if (expandedControlsCommentId == commentId) null else commentId
                                 },
+                                isLastComment = index == comments.size - 1,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -202,6 +206,7 @@ private fun ModernCommentThreadItem(
     commentStates: MutableMap<String, CommentState>,
     expandedControlsCommentId: String?,
     onExpandControls: (String) -> Unit,
+    isLastComment: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val commentId = commentThread.comment.id
@@ -254,7 +259,7 @@ private fun ModernCommentThreadItem(
             
             // Replies - all animated together
             if (state.isExpanded && !state.isCollapsed && commentThread.replies.isNotEmpty()) {
-                commentThread.replies.forEach { reply ->
+                commentThread.replies.forEachIndexed { index, reply ->
                     ModernCommentThreadItem(
                         commentThread = reply,
                         onLike = onLike,
@@ -264,13 +269,14 @@ private fun ModernCommentThreadItem(
                         commentStates = commentStates,
                         expandedControlsCommentId = expandedControlsCommentId,
                         onExpandControls = onExpandControls,
+                        isLastComment = index == commentThread.replies.size - 1,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
             
-            // Minimal separator for top-level comments
-            if (depth == 0) {
+            // Minimal separator for top-level comments (but not the last one)
+            if (depth == 0 && !isLastComment) {
                 HorizontalDivider(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -244,14 +244,6 @@ fun AdaptiveHeader(
                         )
                     }
                     
-                    // Filter/Sort button
-                    IconButton(onClick = onFilterClick) {
-                        Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Filter/Sort",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
                     
                     // Profile avatar
                     IconButton(onClick = onLoginClick ?: {}) {

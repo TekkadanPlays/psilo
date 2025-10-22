@@ -134,7 +134,12 @@ fun RelayManagementScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Relays") },
+                title = { 
+                    Text(
+                        text = "relays",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
@@ -256,6 +261,9 @@ fun RelayManagementScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(bottom = 16.dp)
                     ) {
+                        // Add consistent top spacing
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
                         // Outbox Relays
                         RelayCategorySectionWithAddButton(
                             title = "Outbox Relays",
@@ -423,6 +431,9 @@ fun RelayManagementScreen(
                             },
                             isLoading = uiState.isLoading
                         )
+                        
+                        // Add consistent bottom spacing
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                         }
                 }
@@ -630,7 +641,7 @@ private fun RelayCategorySectionWithAddButton(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {

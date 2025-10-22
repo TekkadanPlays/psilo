@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.foundation.layout.consumeWindowInsets
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.collect
@@ -38,6 +39,7 @@ import com.example.views.data.Note
 import com.example.views.data.SampleData
 import com.example.views.ui.components.AdaptiveHeader
 import com.example.views.ui.components.BottomNavigationBar
+import com.example.views.ui.components.SmartBottomNavigationBar
 import com.example.views.ui.components.BottomNavDestinations
 import com.example.views.ui.components.ModernSidebar
 import com.example.views.ui.components.ModernSearchBar
@@ -99,6 +101,16 @@ fun DashboardScreen(
         TopAppBarDefaults.pinnedScrollBehavior(topAppBarState)
     } else {
         TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
+    }
+    
+    // Simple navigation bar visibility - always visible for now
+    var isBottomNavVisible by remember { mutableStateOf(true) }
+    
+    // Calculate total notification count for badge
+    val totalNotificationCount = remember {
+        // In a real app, this would come from a notification service
+        // For now, we'll use a sample count
+        6 // This matches the sample notifications we created
     }
     
     // Notify parent of TopAppBarState changes for thread view inheritance
@@ -218,32 +230,27 @@ fun DashboardScreen(
             },
             bottomBar = {
                 if (!isSearchMode) {
-                    // ✅ BLACK BACKGROUND: Space beneath home bar should be black
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.Black)
-                    ) {
-                        BottomNavigationBar(
-                            currentDestination = "home",
-                            onDestinationClick = { destination -> 
-                                when (destination) {
-                                    "home" -> {
-                                        scope.launch {
-                                            topAppBarState.heightOffset = 0f
-                                            // ✅ Performance: Use scrollToItem for instant jump (no animation overhead)
-                                            // If already at top, this is virtually free
-                                            listState.scrollToItem(0)
-                                        }
+                    SmartBottomNavigationBar(
+                        currentDestination = "home",
+                        isVisible = isBottomNavVisible,
+                        notificationCount = totalNotificationCount,
+                        onDestinationClick = { destination -> 
+                            when (destination) {
+                                "home" -> {
+                                    scope.launch {
+                                        topAppBarState.heightOffset = 0f
+                                        // ✅ Performance: Use scrollToItem for instant jump (no animation overhead)
+                                        // If already at top, this is virtually free
+                                        listState.scrollToItem(0)
                                     }
-                                    "search" -> onSearchModeChange(true)
-                                    "relays" -> onNavigateTo("relays")
-                                    "profile" -> onNavigateTo("user_profile")
-                                    else -> { /* Other destinations not implemented yet */ }
                                 }
+                                "search" -> onSearchModeChange(true)
+                                "relays" -> onNavigateTo("relays")
+                                "notifications" -> onNavigateTo("notifications")
+                                else -> { /* Other destinations not implemented yet */ }
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         ) { paddingValues ->
@@ -260,6 +267,7 @@ fun DashboardScreen(
                 },
                 modifier = Modifier
                     .fillMaxSize()
+                    .consumeWindowInsets(paddingValues)
                     .padding(paddingValues)
             ) {
                 LazyColumn(
