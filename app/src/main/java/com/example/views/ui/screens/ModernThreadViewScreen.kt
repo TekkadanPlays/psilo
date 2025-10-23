@@ -66,7 +66,7 @@ private val fastAnimation = tween<IntSize>(durationMillis = 150, easing = FastOu
 
 /**
  * Modern, performant Thread View Screen following Material Design 3 principles
- * 
+ *
  * Key Performance Improvements:
  * - Single animation spec for consistency
  * - Simplified state management
@@ -79,6 +79,9 @@ fun ModernThreadViewScreen(
     note: Note,
     comments: List<CommentThread>,
     listState: LazyListState = rememberLazyListState(),
+    commentStates: MutableMap<String, CommentState> = remember { mutableStateMapOf() },
+    expandedControlsCommentId: String? = null,
+    onExpandedControlsChange: (String?) -> Unit = {},
     onBackClick: () -> Unit = {},
     onLike: (String) -> Unit = {},
     onShare: (String) -> Unit = {},
@@ -90,18 +93,14 @@ fun ModernThreadViewScreen(
 ) {
     var isRefreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    
-    // ✅ SIMPLIFIED STATE: Single state map for all comment states
-    val commentStates = remember { mutableStateMapOf<String, CommentState>() }
-    var expandedControlsCommentId by remember { mutableStateOf<String?>(null) }
-    
+
     // No header needed - using predictive back for navigation
-    
+
     // Use predictive back for smooth gesture navigation
     androidx.activity.compose.BackHandler {
         onBackClick()
     }
-    
+
     Scaffold(
         modifier = Modifier.fillMaxSize()
     ) { paddingValues ->
@@ -124,7 +123,7 @@ fun ModernThreadViewScreen(
                         onNoteClick = { /* Already on thread */ },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    
+
                     // Comment control board - compact, above divider
                     Row(
                         modifier = Modifier
@@ -146,7 +145,7 @@ fun ModernThreadViewScreen(
                             )
                         }
                     }
-                    
+
                     // Modern divider
                     Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider(
@@ -156,7 +155,7 @@ fun ModernThreadViewScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
-            
+
             // Comments section with pull-to-refresh
             item(key = "comments_with_refresh") {
                 PullToRefreshBox(
@@ -183,7 +182,7 @@ fun ModernThreadViewScreen(
                                 commentStates = commentStates,
                                 expandedControlsCommentId = expandedControlsCommentId,
                                 onExpandControls = { commentId ->
-                                    expandedControlsCommentId = if (expandedControlsCommentId == commentId) null else commentId
+                                    onExpandedControlsChange(if (expandedControlsCommentId == commentId) null else commentId)
                                 },
                                 isLastComment = index == comments.size - 1,
                                 modifier = Modifier.fillMaxWidth()
@@ -212,10 +211,10 @@ private fun ModernCommentThreadItem(
     val commentId = commentThread.comment.id
     val state = commentStates.getOrPut(commentId) { CommentState() }
     val isControlsExpanded = expandedControlsCommentId == commentId
-    
+
     // ✅ ULTRA COMPACT INDENTATION: Very tight spacing for child comments
     val indentPadding = (depth * 1.5).dp
-    
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -234,7 +233,7 @@ private fun ModernCommentThreadItem(
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
-        
+
         // Comment content - no individual animation to prevent staggering
         Column(
             modifier = Modifier
@@ -256,7 +255,7 @@ private fun ModernCommentThreadItem(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
-            
+
             // Replies - all animated together
             if (state.isExpanded && !state.isCollapsed && commentThread.replies.isNotEmpty()) {
                 commentThread.replies.forEachIndexed { index, reply ->
@@ -274,7 +273,7 @@ private fun ModernCommentThreadItem(
                     )
                 }
             }
-            
+
             // Minimal separator for top-level comments (but not the last one)
             if (depth == 0 && !isLastComment) {
                 HorizontalDivider(
@@ -306,14 +305,14 @@ private fun ModernCommentCard(
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = { 
+                onClick = {
                     if (isCollapsed) {
                         onCollapsedChange(false)
                     } else {
                         onToggleControls()
                     }
                 },
-                onLongClick = { 
+                onLongClick = {
                     if (!isCollapsed) {
                         onCollapsedChange(true)
                     }
@@ -345,9 +344,9 @@ private fun ModernCommentCard(
                         size = 36.dp,
                         onClick = { onProfileClick(comment.author.id) }
                     )
-                    
+
                     Spacer(modifier = Modifier.width(12.dp))
-                    
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = comment.author.displayName,
@@ -364,21 +363,21 @@ private fun ModernCommentCard(
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 // Content with better typography
                 Text(
                     text = comment.content,
                     style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 22.sp
                 )
-                
+
                 // Optimized controls - only show/hide, no complex animations
                 if (isControlsExpanded) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        
+
                         // ✅ COMPACT CONTROLS: Right-aligned with consistent spacing
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -391,35 +390,35 @@ private fun ModernCommentCard(
                                 isActive = comment.isLiked,
                                 onClick = { onLike(comment.id) }
                             )
-                            
+
                             CompactModernButton(
                                 icon = Icons.Outlined.ArrowDownward,
                                 contentDescription = "Downvote",
                                 isActive = false,
                                 onClick = { /* Handle downvote */ }
                             )
-                            
+
                             CompactModernButton(
                                 icon = Icons.Outlined.Bookmark,
                                 contentDescription = "Bookmark",
                                 isActive = false,
                                 onClick = { /* Handle bookmark */ }
                             )
-                            
+
                             CompactModernButton(
                                 icon = Icons.Outlined.Reply,
                                 contentDescription = "Reply",
                                 isActive = false,
                                 onClick = { onReply(comment.id) }
                             )
-                            
+
                             CompactModernButton(
                                 icon = Icons.Outlined.Bolt,
                                 contentDescription = "Zap",
                                 isActive = false,
                                 onClick = { /* Handle zap */ }
                             )
-                            
+
                             // More options
                             var showMenu by remember { mutableStateOf(false) }
                             Box {
@@ -429,7 +428,7 @@ private fun ModernCommentCard(
                                     isActive = false,
                                     onClick = { showMenu = true }
                                 )
-                                
+
                                 DropdownMenu(
                                     expanded = showMenu,
                                     onDismissRequest = { showMenu = false }
@@ -464,9 +463,9 @@ private fun ModernCommentCard(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )
-                
+
                 Spacer(modifier = Modifier.width(6.dp))
-                
+
                 Text(
                     text = comment.author.displayName,
                     style = MaterialTheme.typography.bodySmall.copy(
@@ -475,9 +474,9 @@ private fun ModernCommentCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.clickable { onProfileClick(comment.author.id) }
                 )
-                
+
                 Spacer(modifier = Modifier.width(4.dp))
-                
+
                 Text(
                     text = "· tap to expand",
                     style = MaterialTheme.typography.bodySmall,

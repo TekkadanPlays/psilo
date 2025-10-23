@@ -1,6 +1,7 @@
 package com.example.views.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.views.auth.AmberSignerManager
@@ -11,18 +12,17 @@ import com.example.views.data.GUEST_PROFILE
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import com.vitorpamplona.quartz.nip19Bech32.Nip19Parser
 import com.vitorpamplona.quartz.nip19Bech32.entities.NPub
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
-    
+
     private val amberSignerManager = AmberSignerManager(application)
-    
+
     private val _authState = MutableStateFlow(AuthState())
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
-    
+
     init {
         // Start with guest mode
         _authState.value = AuthState(
@@ -31,16 +31,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             userProfile = GUEST_PROFILE,
             isLoading = false
         )
-        
+
+        Log.d("AuthViewModel", "🔐 Initialized with guest mode")
+
         // Observe Amber state changes
         viewModelScope.launch {
-            combine(
-                amberSignerManager.state,
-                _authState
-            ) { amberState, currentAuthState ->
-                when (amberState) {
+            amberSignerManager.state.collect { amberState ->
+                Log.d("AuthViewModel", "🔐 Amber state changed: $amberState")
+
+                val newState = when (amberState) {
                     is AmberState.NotInstalled -> {
-                        currentAuthState.copy(
+                        AuthState(
                             isAuthenticated = false,
                             isGuest = true,
                             userProfile = GUEST_PROFILE,
@@ -48,7 +49,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     is AmberState.NotLoggedIn -> {
-                        currentAuthState.copy(
+                        AuthState(
                             isAuthenticated = false,
                             isGuest = true,
                             userProfile = GUEST_PROFILE,
@@ -56,23 +57,23 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     is AmberState.LoggingIn -> {
-                        currentAuthState.copy(
+                        _authState.value.copy(
                             isLoading = true,
                             error = null
                         )
                     }
                     is AmberState.LoggedIn -> {
-                        // Use pubkey directly for now - npub conversion will be implemented later
-                        val npub = amberState.pubKey
-                        
+                        Log.d("AuthViewModel", "✅ User logged in with pubkey: ${amberState.pubKey.take(16)}...")
+
                         val userProfile = UserProfile(
                             pubkey = amberState.pubKey,
                             displayName = "Nostr User",
+                            name = amberState.pubKey.take(8),
                             about = "Signed in with Amber Signer",
                             createdAt = System.currentTimeMillis()
                         )
-                        
-                        currentAuthState.copy(
+
+                        AuthState(
                             isAuthenticated = true,
                             isGuest = false,
                             userProfile = userProfile,
@@ -81,7 +82,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     is AmberState.Error -> {
-                        currentAuthState.copy(
+                        AuthState(
                             isAuthenticated = false,
                             isGuest = true,
                             userProfile = GUEST_PROFILE,
@@ -90,20 +91,22 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
-            }.collect { newState ->
+
                 _authState.value = newState
+                Log.d("AuthViewModel", "🔐 Auth state updated - isAuthenticated: ${newState.isAuthenticated}, isGuest: ${newState.isGuest}")
             }
         }
     }
-    
+
     fun loginWithAmber(): android.content.Intent {
         return amberSignerManager.createLoginIntent()
     }
-    
+
     fun handleLoginResult(resultCode: Int, data: android.content.Intent?) {
+        Log.d("AuthViewModel", "🔐 Handling login result - resultCode: $resultCode")
         amberSignerManager.handleLoginResult(resultCode, data)
     }
-    
+
     fun logout() {
         amberSignerManager.logout()
         _authState.value = AuthState(
@@ -114,11 +117,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             error = null
         )
     }
-    
+
     fun clearError() {
         _authState.value = _authState.value.copy(error = null)
     }
-    
+
     fun getCurrentSigner() = amberSignerManager.getCurrentSigner()
     fun getCurrentPubKey() = amberSignerManager.getCurrentPubKey()
 }

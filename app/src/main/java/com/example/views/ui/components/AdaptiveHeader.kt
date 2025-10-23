@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.offset
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,7 +43,12 @@ fun AdaptiveHeader(
     onBackClick: () -> Unit = {},
     onClearSearch: () -> Unit = {},
     onLoginClick: (() -> Unit)? = null,
+    onProfileClick: () -> Unit = {},
+    onAccountsClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
     isGuest: Boolean = true,
+    userDisplayName: String? = null,
+    userAvatarUrl: String? = null,
     scrollBehavior: TopAppBarScrollBehavior? = null,
     currentFeedView: String = "Home",
     onFeedViewChange: (String) -> Unit = {},
@@ -49,7 +56,7 @@ fun AdaptiveHeader(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    
+
     // Feed dropdown state
     var feedDropdownExpanded by remember { mutableStateOf(false) }
     val rotationAngle by animateFloatAsState(
@@ -57,7 +64,7 @@ fun AdaptiveHeader(
         animationSpec = tween(200),
         label = "caret_rotation"
     )
-    
+
     // Show keyboard when search mode is activated
     LaunchedEffect(isSearchMode) {
         if (isSearchMode) {
@@ -65,7 +72,7 @@ fun AdaptiveHeader(
             keyboardController?.show()
         }
     }
-    
+
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surface,
@@ -80,13 +87,13 @@ fun AdaptiveHeader(
                 TextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
-                    placeholder = { 
+                    placeholder = {
                         Text(
                             "Search notes...",
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 fontWeight = FontWeight.Bold
                             )
-                        ) 
+                        )
                     },
                     trailingIcon = {
                         if (searchQuery.text.isNotEmpty()) {
@@ -155,7 +162,7 @@ fun AdaptiveHeader(
                                     .rotate(rotationAngle)
                             )
                         }
-                        
+
                         // Feed view dropdown menu
                         DropdownMenu(
                             expanded = feedDropdownExpanded,
@@ -163,42 +170,42 @@ fun AdaptiveHeader(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Home") },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Outlined.Home, 
+                                        Icons.Outlined.Home,
                                         contentDescription = null,
                                         tint = if (currentFeedView == "Home") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     onFeedViewChange("Home")
                                     feedDropdownExpanded = false
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Popular") },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Outlined.TrendingUp, 
+                                        Icons.Outlined.TrendingUp,
                                         contentDescription = null,
                                         tint = if (currentFeedView == "Popular") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     onFeedViewChange("Popular")
                                     feedDropdownExpanded = false
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Latest") },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Outlined.Schedule, 
+                                        Icons.Outlined.Schedule,
                                         contentDescription = null,
                                         tint = if (currentFeedView == "Latest") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     onFeedViewChange("Latest")
                                     feedDropdownExpanded = false
                                 }
@@ -243,26 +250,89 @@ fun AdaptiveHeader(
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    
-                    
-                    // Profile avatar
-                    IconButton(onClick = onLoginClick ?: {}) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primary,
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "U", // User initial
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    fontWeight = FontWeight.Bold
-                                )
+
+
+                    // Profile avatar or login button
+                    if (isGuest) {
+                        // Guest mode - show login icon
+                        IconButton(onClick = onLoginClick ?: {}) {
+                            Icon(
+                                imageVector = Icons.Outlined.Login,
+                                contentDescription = "Log In",
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
+                        }
+                    } else {
+                        // Signed in - show user avatar with dropdown menu
+                        var showMenu by remember { mutableStateOf(false) }
+
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.primary,
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = userDisplayName?.take(1)?.uppercase() ?: "U",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                                offset = DpOffset(x = (-8).dp, y = 8.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Profile") },
+                                    onClick = {
+                                        showMenu = false
+                                        onProfileClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Person,
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Accounts") },
+                                    onClick = {
+                                        showMenu = false
+                                        onAccountsClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.AccountCircle,
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Settings") },
+                                    onClick = {
+                                        showMenu = false
+                                        onSettingsClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Settings,
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -272,5 +342,3 @@ fun AdaptiveHeader(
         modifier = modifier
     )
 }
-
-

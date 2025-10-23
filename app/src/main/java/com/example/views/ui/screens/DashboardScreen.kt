@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.foundation.layout.consumeWindowInsets
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -40,6 +41,7 @@ import com.example.views.data.SampleData
 import com.example.views.ui.components.AdaptiveHeader
 import com.example.views.ui.components.BottomNavigationBar
 import com.example.views.ui.components.SmartBottomNavigationBar
+import com.example.views.ui.components.ScrollAwareBottomNavigationBar
 import com.example.views.ui.components.BottomNavDestinations
 import com.example.views.ui.components.ModernSidebar
 import com.example.views.ui.components.ModernSearchBar
@@ -70,26 +72,29 @@ fun DashboardScreen(
     onScrollToTop: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     viewModel: DashboardViewModel = viewModel(),
-    authViewModel: AuthViewModel = viewModel(),
+    accountStateViewModel: com.example.views.viewmodel.AccountStateViewModel = viewModel(),
     onLoginClick: (() -> Unit)? = null,
     onTopAppBarStateChange: (TopAppBarState) -> Unit = {},
     initialTopAppBarState: TopAppBarState? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val authState by authViewModel.authState.collectAsState()
+    val authState by accountStateViewModel.authState.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    
+
     // Search state - using simple String instead of TextFieldValue
     var searchQuery by remember { mutableStateOf("") }
-    
+
     // Pull-to-refresh state
     var isRefreshing by remember { mutableStateOf(false) }
-    
+
     // Feed view state
     var currentFeedView by remember { mutableStateOf("Home") }
-    
+
+    // Account switcher state
+    var showAccountSwitcher by remember { mutableStateOf(false) }
+
     // Use Material3's built-in scroll behavior for top app bar
     // Inherit state from thread view when navigating back
     val topAppBarState = rememberTopAppBarState(
@@ -102,22 +107,22 @@ fun DashboardScreen(
     } else {
         TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
     }
-    
+
     // Simple navigation bar visibility - always visible for now
     var isBottomNavVisible by remember { mutableStateOf(true) }
-    
+
     // Calculate total notification count for badge
     val totalNotificationCount = remember {
         // In a real app, this would come from a notification service
         // For now, we'll use a sample count
         6 // This matches the sample notifications we created
     }
-    
+
     // Notify parent of TopAppBarState changes for thread view inheritance
     LaunchedEffect(topAppBarState) {
         onTopAppBarStateChange(topAppBarState)
     }
-    
+
     // ✅ PERFORMANCE: Optimized search filtering (Thread view pattern)
     val searchResults by remember(searchQuery) {
         derivedStateOf {
@@ -133,15 +138,15 @@ fun DashboardScreen(
             }
         }
     }
-    
+
     // ✅ Performance: Cache divider color (don't recreate on every item)
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-    
+
     val uriHandler = LocalUriHandler.current
-    
+
     ModernSidebar(
         drawerState = drawerState,
-        onItemClick = { itemId -> 
+        onItemClick = { itemId ->
             when (itemId) {
                 "user_profile" -> {
                     onNavigateTo("user_profile")
@@ -151,6 +156,11 @@ fun DashboardScreen(
                 }
                 "login" -> {
                     onLoginClick?.invoke()
+                }
+                "logout" -> {
+                    // Handle logout - for now just navigate to settings
+                    // In real app, this would call authViewModel.logout()
+                    onNavigateTo("settings")
                 }
                 "settings" -> {
                     onNavigateTo("settings")
@@ -181,15 +191,15 @@ fun DashboardScreen(
                             searchQuery = ""
                         },
                         active = isSearchMode,
-                        onActiveChange = { active -> 
+                        onActiveChange = { active ->
                             if (!active) {
                                 onSearchModeChange(false)
                                 searchQuery = ""
                             }
                         },
-                        onBackClick = { 
+                        onBackClick = {
                             searchQuery = ""
-                            onSearchModeChange(false) 
+                            onSearchModeChange(false)
                         },
                         placeholder = { Text("Search notes, users, hashtags...") }
                     )
@@ -200,7 +210,7 @@ fun DashboardScreen(
                         isSearchMode = false,
                         searchQuery = androidx.compose.ui.text.input.TextFieldValue(""),
                         onSearchQueryChange = { },
-                        onMenuClick = { 
+                        onMenuClick = {
                             scope.launch {
                                 if (drawerState.isClosed) {
                                     drawerState.open()
@@ -221,7 +231,21 @@ fun DashboardScreen(
                         onBackClick = { },
                         onClearSearch = { },
                         onLoginClick = onLoginClick,
+                        onProfileClick = {
+                            // Navigate to user's own profile
+                            onNavigateTo("user_profile")
+                        },
+                        onAccountsClick = {
+                            // Show account switcher
+                            showAccountSwitcher = true
+                        },
+                        onSettingsClick = {
+                            // Navigate to settings
+                            onNavigateTo("settings")
+                        },
                         isGuest = authState.isGuest,
+                        userDisplayName = authState.userProfile?.displayName ?: authState.userProfile?.name,
+                        userAvatarUrl = authState.userProfile?.picture,
                         scrollBehavior = scrollBehavior,
                         currentFeedView = currentFeedView,
                         onFeedViewChange = { newFeedView -> currentFeedView = newFeedView }
@@ -230,11 +254,12 @@ fun DashboardScreen(
             },
             bottomBar = {
                 if (!isSearchMode) {
-                    SmartBottomNavigationBar(
+                    ScrollAwareBottomNavigationBar(
                         currentDestination = "home",
                         isVisible = isBottomNavVisible,
                         notificationCount = totalNotificationCount,
-                        onDestinationClick = { destination -> 
+                        topAppBarState = topAppBarState,
+                        onDestinationClick = { destination ->
                             when (destination) {
                                 "home" -> {
                                     scope.launch {
@@ -244,8 +269,9 @@ fun DashboardScreen(
                                         listState.scrollToItem(0)
                                     }
                                 }
-                                "search" -> onSearchModeChange(true)
+                                "messages" -> onNavigateTo("messages")
                                 "relays" -> onNavigateTo("relays")
+                                "wallet" -> onNavigateTo("wallet")
                                 "notifications" -> onNavigateTo("notifications")
                                 else -> { /* Other destinations not implemented yet */ }
                             }
@@ -254,6 +280,22 @@ fun DashboardScreen(
                 }
             }
         ) { paddingValues ->
+            // Calculate dynamic content padding based on navigation bar state
+            val bottomBarHeight = 72.dp // Height of the navigation bar
+            val collapsedFraction = topAppBarState.collapsedFraction
+
+            // Calculate dynamic bottom padding
+            val dynamicBottomPadding by remember(collapsedFraction) {
+                derivedStateOf {
+                    if (collapsedFraction > 0.5f) {
+                        0.dp // Remove bottom padding to expand content
+                    } else {
+                        // Gradually reduce bottom padding as navigation bar hides
+                        bottomBarHeight * (1 - collapsedFraction)
+                    }
+                }
+            }
+
             // Main content with pull-to-refresh
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -268,7 +310,12 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .consumeWindowInsets(paddingValues)
-                    .padding(paddingValues)
+                    .padding(
+                        start = paddingValues.calculateStartPadding(LocalLayoutDirection.current),
+                        top = paddingValues.calculateTopPadding(),
+                        end = paddingValues.calculateEndPadding(LocalLayoutDirection.current),
+                        bottom = dynamicBottomPadding
+                    )
             ) {
                 LazyColumn(
                     state = listState,
@@ -293,6 +340,18 @@ fun DashboardScreen(
                 }
             }
         }
+    }
+
+    // Account switcher bottom sheet
+    if (showAccountSwitcher) {
+        com.example.views.ui.components.AccountSwitchBottomSheet(
+            accountStateViewModel = accountStateViewModel,
+            onDismiss = { showAccountSwitcher = false },
+            onAddAccount = {
+                showAccountSwitcher = false
+                onLoginClick?.invoke()
+            }
+        )
     }
 }
 

@@ -27,10 +27,10 @@
 # Remove unused icons to improve build times and reduce APK size
 -keep class androidx.compose.material.icons.Icons$Default {
     public static androidx.compose.ui.graphics.vector.ImageVector Home;
-    public static androidx.compose.ui.graphics.vector.ImageVector Search;
     public static androidx.compose.ui.graphics.vector.ImageVector Router;
     public static androidx.compose.ui.graphics.vector.ImageVector Email;
     public static androidx.compose.ui.graphics.vector.ImageVector Notifications;
+    public static androidx.compose.ui.graphics.vector.ImageVector AccountBalanceWallet;
     public static androidx.compose.ui.graphics.vector.ImageVector Star;
     public static androidx.compose.ui.graphics.vector.ImageVector Favorite;
     public static androidx.compose.ui.graphics.vector.ImageVector Reply;

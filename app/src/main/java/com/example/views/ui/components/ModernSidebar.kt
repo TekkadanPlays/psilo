@@ -31,7 +31,7 @@ fun ModernSidebar(
     content: @Composable () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -59,13 +59,15 @@ private fun SidebarContent(
     authState: com.example.views.data.AuthState? = null,
     modifier: Modifier = Modifier
 ) {
+    val isSignedIn = authState?.isAuthenticated == true
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         // User profile section
         Card(
             modifier = Modifier
@@ -96,9 +98,9 @@ private fun SidebarContent(
                         )
                     )
                 }
-                
+
                 Spacer(modifier = Modifier.width(16.dp))
-                
+
                 Column {
                     Text(
                         text = authState?.userProfile?.displayNameOrName ?: "Guest User",
@@ -116,20 +118,21 @@ private fun SidebarContent(
                 }
             }
         }
-        
+
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        
-        // Navigation items using proper NavigationDrawerItem
-        getModernMenuItems().forEach { item ->
+
+        // Navigation items - conditional based on auth state
+        getModernMenuItems(isSignedIn).forEach { item ->
             NavigationDrawerItem(
                 label = { Text(item.title) },
                 selected = false,
                 icon = { Icon(item.icon, contentDescription = item.title) },
                 badge = item.badge?.let { { Text(it) } },
-                onClick = { onItemClick(item.id) }
+                onClick = { onItemClick(item.id) },
+                modifier = Modifier.padding(horizontal = 12.dp)
             )
         }
-        
+
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
@@ -143,15 +146,21 @@ private data class ModernSidebarMenuItem(
     val hasArrow: Boolean = false
 )
 
-private fun getModernMenuItems(): List<ModernSidebarMenuItem> = listOf(
-    ModernSidebarMenuItem("home", "Home", Icons.Default.Home),
-    ModernSidebarMenuItem("user_profile", "My Profile", Icons.Default.Person),
-    ModernSidebarMenuItem("relays", "Relays", Icons.Default.Router),
-    ModernSidebarMenuItem("bookmarks", "Bookmarks", Icons.Default.Star),
-    ModernSidebarMenuItem("lists", "Lists", Icons.AutoMirrored.Filled.List),
-    ModernSidebarMenuItem("login", "Log In", Icons.Outlined.Login),
-    ModernSidebarMenuItem("settings", "Settings", Icons.Outlined.Settings)
-)
+private fun getModernMenuItems(isSignedIn: Boolean): List<ModernSidebarMenuItem> {
+    return if (isSignedIn) {
+        // Signed in: show Logout and Settings only
+        listOf(
+            ModernSidebarMenuItem("logout", "Logout", Icons.Outlined.Logout),
+            ModernSidebarMenuItem("settings", "Settings", Icons.Outlined.Settings)
+        )
+    } else {
+        // Guest: show Login and Settings only
+        listOf(
+            ModernSidebarMenuItem("login", "Log In", Icons.Outlined.Login),
+            ModernSidebarMenuItem("settings", "Settings", Icons.Outlined.Settings)
+        )
+    }
+}
 
 @Preview(showBackground = true)
 @Composable
