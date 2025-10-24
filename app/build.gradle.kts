@@ -9,13 +9,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.views"
+    namespace = "com.tekkadan.ribbit"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.example.views"
+        applicationId = "com.tekkadan.ribbit"
         minSdk = 35
         targetSdk = 36
         versionCode = 4

@@ -26,6 +26,7 @@
       "changelog": "Major update introducing Lightning Zaps and Wallet Connect functionality! Connect your Lightning wallet to send zaps to posts and comments. Includes comprehensive UI components, account preferences, and full NIP-47/NIP-57 compliance foundation.",
       "minSdk": 35,
       "targetSdk": 36,
+      "packageId": "com.tekkadan.ribbit",
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE"
