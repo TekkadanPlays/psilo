@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.views.ui.components.SageLoadingIndicator
 import com.example.views.data.UserRelay
 import com.example.views.data.RelayHealth
 import com.example.views.data.RelayConnectionStatus
@@ -158,6 +159,8 @@ fun RelayManagementScreen(
     // Toast and dialog state
     var showToast by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf("") }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var categoryToDelete by remember { mutableStateOf<RelayCategory?>(null) }
     var showDefaultConfirmation by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
@@ -291,7 +294,8 @@ fun RelayManagementScreen(
                                     }
                                 },
                                 onDeleteCategory = {
-                                    viewModel.deleteCategory(category.id)
+                                    categoryToDelete = category
+                                    showDeleteConfirmation = true
                                 },
                                 isEditing = editingCategoryId == category.id,
                                 onStartEditing = {
@@ -486,6 +490,58 @@ fun RelayManagementScreen(
                 }
             }
         }
+
+        // Delete Category Confirmation Dialog
+        if (showDeleteConfirmation && categoryToDelete != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    showDeleteConfirmation = false
+                    categoryToDelete = null
+                },
+                title = {
+                    Text("Delete Category?")
+                },
+                text = {
+                    Column {
+                        Text("Are you sure you want to delete \"${categoryToDelete?.name}\"?")
+                        if (categoryToDelete?.relays?.isNotEmpty() == true) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "This category contains ${categoryToDelete?.relays?.size} relay(s).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            categoryToDelete?.let { category ->
+                                viewModel.deleteCategory(category.id)
+                            }
+                            showDeleteConfirmation = false
+                            categoryToDelete = null
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirmation = false
+                            categoryToDelete = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 
     // Snackbar for toast messages
@@ -578,8 +634,8 @@ private fun RelayAddSection(
                         enabled = !isLoading
                     ) {
                         if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                            SageLoadingIndicator(
+                                size = 20.dp,
                                 strokeWidth = 2.dp
                             )
                         } else {
@@ -651,8 +707,8 @@ private fun RelayAddSectionNoPadding(
                         enabled = !isLoading
                     ) {
                         if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                            SageLoadingIndicator(
+                                size = 20.dp,
                                 strokeWidth = 2.dp
                             )
                         } else {

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -48,12 +49,13 @@ fun NotificationsScreen(
     onComment: (String) -> Unit = {},
     onProfileClick: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    topAppBarState: TopAppBarState = rememberTopAppBarState(),
     modifier: Modifier = Modifier
 ) {
     // Notification view state
     var currentNotificationView by remember { mutableStateOf("All") }
     var notificationDropdownExpanded by remember { mutableStateOf(false) }
-    
+
     // Calculate notification counts for badges
     val allNotifications = createSampleNotifications()
     val notificationCounts = remember(allNotifications) {
@@ -65,16 +67,21 @@ fun NotificationsScreen(
             "Follows" to allNotifications.count { it.type == NotificationType.FOLLOW }
         )
     }
-    
+
+    // Scroll behavior for collapsible top bar
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
+
     // Use predictive back for smooth gesture navigation
     BackHandler {
         onBackClick()
     }
-    
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
-                title = { 
+                scrollBehavior = scrollBehavior,
+                title = {
                     Text(
                         text = when (currentNotificationView) {
                             "All" -> "all notifications"
@@ -99,7 +106,7 @@ fun NotificationsScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            
+
                             // Large icon for current view
                             val currentIcon = when (currentNotificationView) {
                                 "All" -> Icons.Default.Notifications
@@ -109,7 +116,7 @@ fun NotificationsScreen(
                                 "Follows" -> Icons.Default.PersonAdd
                                 else -> Icons.Default.Notifications
                             }
-                            
+
                             Icon(
                                 imageVector = currentIcon,
                                 contentDescription = "Current notification view",
@@ -117,14 +124,14 @@ fun NotificationsScreen(
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        
+
                         // Notification view dropdown menu
                         DropdownMenu(
                             expanded = notificationDropdownExpanded,
                             onDismissRequest = { notificationDropdownExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { 
+                                text = {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -144,20 +151,20 @@ fun NotificationsScreen(
                                         }
                                     }
                                 },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Default.Notifications, 
+                                        Icons.Default.Notifications,
                                         contentDescription = null,
                                         tint = if (currentNotificationView == "All") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     currentNotificationView = "All"
                                     notificationDropdownExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { 
+                                text = {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -177,20 +184,20 @@ fun NotificationsScreen(
                                         }
                                     }
                                 },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Default.Favorite, 
+                                        Icons.Default.Favorite,
                                         contentDescription = null,
                                         tint = if (currentNotificationView == "Likes") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     currentNotificationView = "Likes"
                                     notificationDropdownExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { 
+                                text = {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -210,20 +217,20 @@ fun NotificationsScreen(
                                         }
                                     }
                                 },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Outlined.Reply, 
+                                        Icons.Outlined.Reply,
                                         contentDescription = null,
                                         tint = if (currentNotificationView == "Replies") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     currentNotificationView = "Replies"
                                     notificationDropdownExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { 
+                                text = {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -243,20 +250,20 @@ fun NotificationsScreen(
                                         }
                                     }
                                 },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Outlined.AlternateEmail, 
+                                        Icons.Outlined.AlternateEmail,
                                         contentDescription = null,
                                         tint = if (currentNotificationView == "Mentions") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     currentNotificationView = "Mentions"
                                     notificationDropdownExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { 
+                                text = {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -276,14 +283,14 @@ fun NotificationsScreen(
                                         }
                                     }
                                 },
-                                leadingIcon = { 
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Default.PersonAdd, 
+                                        Icons.Default.PersonAdd,
                                         contentDescription = null,
                                         tint = if (currentNotificationView == "Follows") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    ) 
+                                    )
                                 },
-                                onClick = { 
+                                onClick = {
                                     currentNotificationView = "Follows"
                                     notificationDropdownExpanded = false
                                 }
@@ -324,7 +331,7 @@ fun NotificationsScreen(
                 "Follows" -> allNotifications.filter { it.type == NotificationType.FOLLOW }
                 else -> allNotifications
             }
-            
+
             items(
                 items = filteredNotifications,
                 key = { it.id }
@@ -359,7 +366,7 @@ private fun NotificationItem(
             .fillMaxWidth()
             .height(IntrinsicSize.Min) // Critical for proper vertical lines
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable { 
+            .clickable {
                 notification.note?.let { onNoteClick(it) }
             }
     ) {
@@ -378,7 +385,7 @@ private fun NotificationItem(
                 )
         )
         Spacer(modifier = Modifier.width(12.dp))
-        
+
         // Notification content
         Column(
             modifier = Modifier
@@ -432,9 +439,9 @@ private fun NotificationItem(
                             modifier = Modifier.size(18.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.width(12.dp))
-            
+
             Column(
                 modifier = Modifier.weight(1f)
             ) {
@@ -447,9 +454,9 @@ private fun NotificationItem(
                             color = MaterialTheme.colorScheme.onSurface,
                             lineHeight = 20.sp
                         )
-                        
+
                         Spacer(modifier = Modifier.height(6.dp))
-                        
+
                         // Time ago with subtle styling
                 Text(
                     text = notification.timeAgo,
@@ -459,11 +466,11 @@ private fun NotificationItem(
                     }
                 }
             }
-                
+
             // Note preview with modern styling (if exists)
                 notification.note?.let { note ->
                     Spacer(modifier = Modifier.height(8.dp))
-                    
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -496,9 +503,9 @@ private fun NotificationItem(
                                         )
                                     )
                                 }
-                                
+
                                 Spacer(modifier = Modifier.width(8.dp))
-                                
+
                                 Text(
                                     text = note.author.displayName,
                                 style = MaterialTheme.typography.labelMedium.copy(
@@ -506,26 +513,26 @@ private fun NotificationItem(
                                 ),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                
+
                                 Spacer(modifier = Modifier.width(8.dp))
-                                
+
                                 Text(
                                     text = "•",
                                     style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                 )
-                                
+
                                 Spacer(modifier = Modifier.width(8.dp))
-                                
+
                                 Text(
                                     text = formatTimeAgo(note.timestamp),
                                     style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             }
-                            
+
                             Spacer(modifier = Modifier.height(8.dp))
-                            
+
                             Text(
                                 text = note.content,
                                 style = MaterialTheme.typography.bodySmall,
@@ -559,7 +566,7 @@ enum class NotificationType {
 private fun createSampleNotifications(): List<NotificationData> {
     val sampleNotes = SampleData.sampleNotes
     val sampleAuthors = sampleNotes.map { it.author }
-    
+
     return listOf(
         NotificationData(
             id = "1",
@@ -614,7 +621,7 @@ private fun createSampleNotifications(): List<NotificationData> {
 private fun formatTimeAgo(timestamp: Long): String {
     val now = System.currentTimeMillis()
     val diff = now - timestamp
-    
+
     return when {
         diff < 60_000 -> "${diff / 1000}s ago"
         diff < 3_600_000 -> "${diff / 60_000}m ago"

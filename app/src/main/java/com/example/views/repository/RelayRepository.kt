@@ -32,7 +32,7 @@ class RelayRepository(private val context: Context) {
         private const val RELAYS_KEY = "relays_list"
         private val JSON = Json { ignoreUnknownKeys = true }
     }
-    
+
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences(RELAYS_PREFS, Context.MODE_PRIVATE)
     private val nip11CacheManager = Nip11CacheManager(context)
     private val httpClient = OkHttpClient.Builder()
@@ -40,21 +40,21 @@ class RelayRepository(private val context: Context) {
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
-    
+
     // StateFlow for reactive UI updates
     private val _relays = MutableStateFlow<List<UserRelay>>(emptyList())
     val relays: StateFlow<List<UserRelay>> = _relays
-    
+
     // StateFlow for connection status updates
     private val _connectionStatus = MutableStateFlow<Map<String, RelayConnectionStatus>>(emptyMap())
     val connectionStatus: StateFlow<Map<String, RelayConnectionStatus>> = _connectionStatus
-    
+
     init {
         loadRelaysFromStorage()
         // Start background refresh of stale NIP-11 data
         startBackgroundRefresh()
     }
-    
+
     /**
      * Add a new relay to the user's list
      */
@@ -62,16 +62,16 @@ class RelayRepository(private val context: Context) {
         try {
             // Normalize URL
             val normalizedUrl = normalizeRelayUrl(url)
-            
+
             // Check if relay already exists
             val existingRelays = _relays.value
             if (existingRelays.any { it.url == normalizedUrl }) {
                 return@withContext Result.failure(Exception("Relay already exists"))
             }
-            
+
             // Check cache first for immediate NIP-11 info
             val cachedInfo = nip11CacheManager.getCachedRelayInfo(normalizedUrl)
-            
+
             // Create new relay with cached NIP-11 info if available
             val newRelay = UserRelay(
                 url = normalizedUrl,
@@ -82,22 +82,22 @@ class RelayRepository(private val context: Context) {
                 isOnline = cachedInfo != null,
                 lastChecked = if (cachedInfo != null) System.currentTimeMillis() else 0L
             )
-            
+
             // Add to list immediately for fast UI response
             val updatedRelays = existingRelays + newRelay
             _relays.value = updatedRelays
-            
+
             // Persist to storage
             saveRelaysToStorage(updatedRelays)
-            
+
             Log.d(TAG, "✅ Added relay: $normalizedUrl ${if (cachedInfo != null) "(with cached NIP-11)" else "(fetching NIP-11)"}")
-            
+
             // Fetch fresh NIP-11 information in background if not cached or stale
             if (cachedInfo == null || nip11CacheManager.getStaleRelayUrls().contains(normalizedUrl)) {
                 kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                     try {
                         val freshInfo = nip11CacheManager.getRelayInfo(normalizedUrl, forceRefresh = true)
-                        
+
                         // Update the relay with fresh NIP-11 info
                         val currentRelays = _relays.value
                         val relayIndex = currentRelays.indexOfFirst { it.url == normalizedUrl }
@@ -119,15 +119,15 @@ class RelayRepository(private val context: Context) {
                     }
                 }
             }
-            
+
             Result.success(newRelay)
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to add relay: ${e.message}", e)
             Result.failure(e)
         }
     }
-    
+
     /**
      * Remove a relay from the user's list
      */
@@ -135,23 +135,23 @@ class RelayRepository(private val context: Context) {
         try {
             val existingRelays = _relays.value
             val updatedRelays = existingRelays.filter { it.url != url }
-            
+
             if (updatedRelays.size == existingRelays.size) {
                 return@withContext Result.failure(Exception("Relay not found"))
             }
-            
+
             _relays.value = updatedRelays
             saveRelaysToStorage(updatedRelays)
-            
+
             Log.d(TAG, "🗑️ Removed relay: $url")
             Result.success(true)
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to remove relay: ${e.message}", e)
             Result.failure(e)
         }
     }
-    
+
     /**
      * Update relay settings (read/write permissions)
      */
@@ -159,28 +159,28 @@ class RelayRepository(private val context: Context) {
         try {
             val existingRelays = _relays.value
             val relayIndex = existingRelays.indexOfFirst { it.url == url }
-            
+
             if (relayIndex == -1) {
                 return@withContext Result.failure(Exception("Relay not found"))
             }
-            
+
             val updatedRelay = existingRelays[relayIndex].copy(read = read, write = write)
             val updatedRelays = existingRelays.toMutableList().apply {
                 set(relayIndex, updatedRelay)
             }
-            
+
             _relays.value = updatedRelays
             saveRelaysToStorage(updatedRelays)
-            
+
             Log.d(TAG, "✅ Updated relay settings: $url (read=$read, write=$write)")
             Result.success(updatedRelay)
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to update relay settings: ${e.message}", e)
             Result.failure(e)
         }
     }
-    
+
     /**
      * Refresh relay information (NIP-11)
      */
@@ -188,38 +188,38 @@ class RelayRepository(private val context: Context) {
         try {
             val existingRelays = _relays.value
             val relayIndex = existingRelays.indexOfFirst { it.url == url }
-            
+
             if (relayIndex == -1) {
                 return@withContext Result.failure(Exception("Relay not found"))
             }
-            
+
             val relay = existingRelays[relayIndex]
-            
+
             // Force refresh from cache manager
             val freshInfo = nip11CacheManager.getRelayInfo(url, forceRefresh = true)
-            
+
             val updatedRelay = relay.copy(
                 info = freshInfo,
                 isOnline = freshInfo != null,
                 lastChecked = System.currentTimeMillis()
             )
-            
+
             val updatedRelays = existingRelays.toMutableList().apply {
                 set(relayIndex, updatedRelay)
             }
-            
+
             _relays.value = updatedRelays
             saveRelaysToStorage(updatedRelays)
-            
+
             Log.d(TAG, "🔄 Refreshed relay info: $url")
             Result.success(updatedRelay)
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to refresh relay info: ${e.message}", e)
             Result.failure(e)
         }
     }
-    
+
     /**
      * Test relay connection
      */
@@ -227,30 +227,30 @@ class RelayRepository(private val context: Context) {
         try {
             // Update connection status to connecting
             updateConnectionStatus(url, RelayConnectionStatus.CONNECTING)
-            
+
             // Convert WebSocket URL to HTTP for NIP-11 check
             val httpUrl = url.replace("wss://", "https://").replace("ws://", "http://")
-            
+
             val request = Request.Builder()
                 .url(httpUrl)
                 .header("Accept", "application/nostr+json")
                 .build()
-            
+
             val response = httpClient.newCall(request).execute()
-            
+
             val isConnected = response.isSuccessful
             updateConnectionStatus(url, if (isConnected) RelayConnectionStatus.CONNECTED else RelayConnectionStatus.ERROR)
-            
+
             Log.d(TAG, "🔍 Tested relay connection: $url -> $isConnected")
             Result.success(isConnected)
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to test relay connection: ${e.message}", e)
             updateConnectionStatus(url, RelayConnectionStatus.ERROR)
             Result.failure(e)
         }
     }
-    
+
     /**
      * Get relay health status
      */
@@ -262,12 +262,12 @@ class RelayRepository(private val context: Context) {
             else -> RelayHealth.HEALTHY
         }
     }
-    
+
     /**
      * Get NIP-11 cache manager for external access
      */
     fun getNip11CacheManager(): Nip11CacheManager = nip11CacheManager
-    
+
     /**
      * Start background refresh of stale NIP-11 data
      */
@@ -276,25 +276,25 @@ class RelayRepository(private val context: Context) {
             try {
                 // Small delay to let the app initialize
                 kotlinx.coroutines.delay(2000)
-                
+
                 // Refresh stale relay information
                 nip11CacheManager.refreshStaleRelays(
                     scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
                 ) {
                     Log.d(TAG, "🎉 Background NIP-11 refresh completed")
                 }
-                
+
                 // Preload relay info for current relays
                 val currentRelays = _relays.value
                 val relayUrls = currentRelays.map { it.url }
                 nip11CacheManager.preloadRelayInfo(relayUrls, kotlinx.coroutines.CoroutineScope(Dispatchers.IO))
-                
+
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Background refresh failed: ${e.message}", e)
             }
         }
     }
-    
+
     /**
      * Normalize relay URL
      */
@@ -306,7 +306,7 @@ class RelayRepository(private val context: Context) {
             else -> "wss://$url"
         }
     }
-    
+
     /**
      * Update connection status for a relay
      */
@@ -315,7 +315,7 @@ class RelayRepository(private val context: Context) {
         currentStatus[url] = status
         _connectionStatus.value = currentStatus
     }
-    
+
     /**
      * Load relays from persistent storage
      */
@@ -331,7 +331,7 @@ class RelayRepository(private val context: Context) {
             Log.e(TAG, "❌ Failed to load relays from storage: ${e.message}", e)
         }
     }
-    
+
     /**
      * Save relays to persistent storage
      */
@@ -346,7 +346,31 @@ class RelayRepository(private val context: Context) {
             Log.e(TAG, "❌ Failed to save relays to storage: ${e.message}", e)
         }
     }
-    
+
+    /**
+     * Fetch user's relay list from the network using NIP-65
+     */
+    suspend fun fetchUserRelayList(pubkey: String): Result<List<UserRelay>> = withContext(Dispatchers.IO) {
+        try {
+            // TODO: Implement NIP-65 relay list fetching from network
+            // This would query kind 10002 events from bootstrap relays
+            // For now, return empty list as placeholder
+            Log.d(TAG, "📡 Fetching relay list for pubkey: ${pubkey.take(8)}...")
+
+            // Placeholder implementation - in production this would:
+            // 1. Connect to bootstrap relays
+            // 2. Query for kind 10002 events for the pubkey
+            // 3. Parse the relay list from the event tags
+            // 4. Return the list of relays
+
+            Result.success(emptyList())
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to fetch relay list: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     /**
      * Clear all relays
      */

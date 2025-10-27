@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.key
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -243,15 +244,18 @@ fun OptimizedDashboardScreen(
                         key = { it.id }
                     ) { note ->
                         // ✅ PERFORMANCE: No individual animations to prevent stuttering (Thread view pattern)
-                        OptimizedNoteCard(
-                            note = note,
-                            onLike = { noteId -> viewModel.toggleLike(noteId) },
-                            onShare = { noteId -> /* Handle share */ },
-                            onComment = { noteId -> onThreadClick(note) },
-                            onProfileClick = onProfileClick,
-                            onNoteClick = onThreadClick,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        // ✅ FIX: Use stable key to prevent recomposition during URL preview loading
+                        key(note.id, note.urlPreviews.size) {
+                            OptimizedNoteCard(
+                                note = note,
+                                onLike = { noteId -> viewModel.toggleLike(noteId) },
+                                onShare = { noteId -> /* Handle share */ },
+                                onComment = { noteId -> onThreadClick(note) },
+                                onProfileClick = onProfileClick,
+                                onNoteClick = onThreadClick,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }

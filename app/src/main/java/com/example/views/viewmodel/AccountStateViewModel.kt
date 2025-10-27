@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.views.auth.AmberSignerManager
 import com.example.views.auth.AmberState
 import com.example.views.data.AccountInfo
+import com.example.views.repository.RelayStorageManager
 import com.example.views.data.AuthState
 import com.example.views.data.UserProfile
 import com.example.views.data.GUEST_PROFILE
@@ -34,6 +35,7 @@ class AccountStateViewModel(application: Application) : AndroidViewModel(applica
 
     private val amberSignerManager = AmberSignerManager(application)
     private val prefs = application.getSharedPreferences("ribbit_accounts", Application.MODE_PRIVATE)
+    private val relayStorageManager = RelayStorageManager(application)
 
     // Current active account
     private val _currentAccount = MutableStateFlow<AccountInfo?>(null)
@@ -289,6 +291,13 @@ class AccountStateViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             Log.d("AccountStateViewModel", "👋 Logging out account: ${accountInfo.toShortNpub()}")
 
+            // Clear all relay data for this account
+            val pubkey = accountInfo.toHexKey()
+            if (pubkey != null) {
+                relayStorageManager.clearUserData(pubkey)
+                Log.d("AccountStateViewModel", "🗑️ Cleared relay data for account: ${accountInfo.toShortNpub()}")
+            }
+
             // Remove from saved accounts
             val updatedAccounts = _savedAccounts.value.filter { it.npub != accountInfo.npub }
             saveSavedAccounts(updatedAccounts)
@@ -301,6 +310,11 @@ class AccountStateViewModel(application: Application) : AndroidViewModel(applica
                 } else {
                     // No more accounts, go to guest mode
                     prefs.edit().remove(PREF_CURRENT_ACCOUNT).apply()
+
+                    // Clear guest relay data as well when switching to guest mode
+                    relayStorageManager.clearUserData("guest")
+                    Log.d("AccountStateViewModel", "🗑️ Cleared guest relay data")
+
                     setGuestMode()
                 }
             }

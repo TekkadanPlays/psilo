@@ -1,5 +1,5 @@
-import java.util.Properties
 import java.io.FileInputStream
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -9,13 +9,11 @@ plugins {
 }
 
 android {
-    namespace = "com.tekkadan.ribbit"
-    compileSdk {
-        version = release(36)
-    }
+    namespace = "com.example.views"
+    compileSdk { version = release(36) }
 
     defaultConfig {
-        applicationId = "com.tekkadan.ribbit"
+        applicationId = "com.example.views"
         minSdk = 35
         targetSdk = 36
         versionCode = 3
@@ -43,19 +41,20 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
             )
-            
+
             // Use release signing config if available, otherwise debug
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig =
+                    if (keystorePropertiesFile.exists()) {
+                        signingConfigs.getByName("release")
+                    } else {
+                        signingConfigs.getByName("debug")
+                    }
         }
         debug {
             isMinifyEnabled = false
@@ -67,17 +66,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
-    buildFeatures {
-        compose = true
-    }
-    
+    kotlinOptions { jvmTarget = "11" }
+    buildFeatures { compose = true }
+
     // Compose compiler options for performance
     composeCompiler {
         enableStrongSkippingMode = true
-        
+
         // Generate composition metrics for performance analysis
         reportsDestination = layout.buildDirectory.dir("compose_metrics")
         metricsDestination = layout.buildDirectory.dir("compose_metrics")
@@ -97,10 +92,10 @@ dependencies {
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
-    
+
     // ProfileInstaller for Baseline Profiles
     implementation(libs.androidx.profileinstaller)
-    
+
     // Ktor WebSocket dependencies
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
@@ -108,16 +103,16 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
-    
+
     // Nostr and Amber dependencies
     implementation("com.vitorpamplona.amethyst:quartz")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("io.coil-kt:coil-compose:2.5.0")
-    
+
     // HTML parsing for URL previews
     implementation("org.jsoup:jsoup:1.17.2")
-    
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

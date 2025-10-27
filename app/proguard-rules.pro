@@ -87,11 +87,11 @@
     public static androidx.compose.ui.graphics.vector.ImageVector Router;
     public static androidx.compose.ui.graphics.vector.ImageVector Publish;
     public static androidx.compose.ui.graphics.vector.ImageVector Refresh;
-    public static androidx.compose.ui.graphics.vector.ImageVector Wifi;
-    public static androidx.compose.ui.graphics.vector.ImageVector Delete;
     public static androidx.compose.ui.graphics.vector.ImageVector Palette;
     public static androidx.compose.ui.graphics.vector.ImageVector ColorLens;
     public static androidx.compose.ui.graphics.vector.ImageVector Tune;
+    public static androidx.compose.ui.graphics.vector.ImageVector Campaign;
+    public static androidx.compose.ui.graphics.vector.ImageVector Language;
 }
 
 -keep class androidx.compose.material.icons.Icons$Filled {

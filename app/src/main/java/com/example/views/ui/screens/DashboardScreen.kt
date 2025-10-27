@@ -43,14 +43,18 @@ import com.example.views.ui.components.BottomNavigationBar
 import com.example.views.ui.components.SmartBottomNavigationBar
 import com.example.views.ui.components.ScrollAwareBottomNavigationBar
 import com.example.views.ui.components.BottomNavDestinations
-import com.example.views.ui.components.ModernSidebar
 import com.example.views.ui.components.ModernSearchBar
-import com.example.views.ui.components.ModernNoteCard
+import com.example.views.ui.components.GlobalSidebar
+import com.example.views.ui.components.NoteCard
+import com.example.views.ui.components.LoadingAnimation
 import com.example.views.ui.components.NoteCard
 import com.example.views.viewmodel.DashboardViewModel
 import com.example.views.viewmodel.AuthViewModel
 import com.example.views.viewmodel.RelayManagementViewModel
+import com.example.views.viewmodel.FeedStateViewModel
 import com.example.views.repository.RelayRepository
+import com.example.views.repository.RelayStorageManager
+import androidx.compose.ui.platform.LocalContext
 import com.example.views.ui.performance.animatedYOffset
 import java.text.SimpleDateFormat
 import java.util.*
@@ -74,6 +78,7 @@ fun DashboardScreen(
     onScrollToTop: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     viewModel: DashboardViewModel = viewModel(),
+    feedStateViewModel: FeedStateViewModel = viewModel(),
     accountStateViewModel: com.example.views.viewmodel.AccountStateViewModel = viewModel(),
     relayRepository: RelayRepository? = null,
     onLoginClick: (() -> Unit)? = null,
@@ -81,19 +86,79 @@ fun DashboardScreen(
     initialTopAppBarState: TopAppBarState? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val homeFeedState by feedStateViewModel.homeFeedState.collectAsState()
     val authState by accountStateViewModel.authState.collectAsState()
+    val currentAccount by accountStateViewModel.currentAccount.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    
+
     // Relay management
-    val relayViewModel: RelayManagementViewModel? = relayRepository?.let { 
-        viewModel { RelayManagementViewModel(it) } 
+    val storageManager = remember { RelayStorageManager(context) }
+    val relayViewModel: RelayManagementViewModel? = relayRepository?.let {
+        viewModel { RelayManagementViewModel(it, storageManager) }
     }
     val relayUiState = if (relayViewModel != null) {
         relayViewModel.uiState.collectAsState().value
     } else {
         com.example.views.viewmodel.RelayManagementUiState()
+    }
+
+    // Load user relays when account changes
+    LaunchedEffect(currentAccount) {
+        currentAccount?.toHexKey()?.let { pubkey ->
+            relayViewModel?.loadUserRelays(pubkey)
+        }
+    }
+
+    // Get relay categories for sidebar
+    val relayCategories = relayViewModel?.relayCategories?.collectAsState()?.value ?: emptyList()
+
+    // Track if we've already loaded relays on this mount
+    var hasLoadedRelays by remember { mutableStateOf(false) }
+
+    // Auto-load notes from default/favorite category on feed load
+    LaunchedEffect(relayCategories, currentAccount) {
+        if (relayCategories.isNotEmpty() && !hasLoadedRelays) {
+            val favoriteCategory = relayCategories.firstOrNull { it.isFavorite }
+            if (favoriteCategory != null && favoriteCategory.relays.isNotEmpty()) {
+                val relayUrls = favoriteCategory.relays.map { it.url }
+                viewModel.loadNotesFromFavoriteCategory(relayUrls)
+                hasLoadedRelays = true
+            } else {
+                val defaultCategory = relayCategories.firstOrNull { it.isDefault && it.relays.isNotEmpty() }
+                    ?: relayCategories.firstOrNull { it.relays.isNotEmpty() }
+                if (defaultCategory != null) {
+                    val relayUrls = defaultCategory.relays.map { it.url }
+                    viewModel.loadNotesFromFavoriteCategory(relayUrls)
+                    hasLoadedRelays = true
+                }
+            }
+        }
+    }
+
+    // Ensure relays are recalled when navigating back to feed
+    LaunchedEffect(Unit) {
+        if (!hasLoadedRelays && relayCategories.isNotEmpty()) {
+            if (uiState.notes.isEmpty() && !uiState.hasRelays && !uiState.isLoadingFromRelays) {
+                val favoriteCategory = relayCategories.firstOrNull { it.isFavorite }
+                    ?: relayCategories.firstOrNull { it.isDefault && it.relays.isNotEmpty() }
+                    ?: relayCategories.firstOrNull { it.relays.isNotEmpty() }
+                if (favoriteCategory != null && favoriteCategory.relays.isNotEmpty()) {
+                    val relayUrls = favoriteCategory.relays.map { it.url }
+                    viewModel.loadNotesFromFavoriteCategory(relayUrls)
+                    hasLoadedRelays = true
+                }
+            }
+        }
+    }
+
+    // Fetch user's NIP-65 relay list when account changes
+    LaunchedEffect(currentAccount) {
+        currentAccount?.toHexKey()?.let { pubkey ->
+            relayViewModel?.fetchUserRelaysFromNetwork(pubkey)
+        }
     }
 
     // Search state - using simple String instead of TextFieldValue
@@ -107,10 +172,10 @@ fun DashboardScreen(
 
     // Account switcher state
     var showAccountSwitcher by remember { mutableStateOf(false) }
-    
+
     // Zap menu state - shared across all note cards
     var shouldCloseZapMenus by remember { mutableStateOf(false) }
-    
+
     // Zap configuration dialog state
     var showZapConfigDialog by remember { mutableStateOf(false) }
     var showWalletConnectDialog by remember { mutableStateOf(false) }
@@ -128,20 +193,15 @@ fun DashboardScreen(
     }
 
     // Use Material3's built-in scroll behavior for top app bar
-    // Inherit state from thread view when navigating back
-    val topAppBarState = rememberTopAppBarState(
-        initialHeightOffsetLimit = initialTopAppBarState?.heightOffsetLimit ?: 0f,
-        initialHeightOffset = initialTopAppBarState?.heightOffset ?: 0f,
-        initialContentOffset = initialTopAppBarState?.contentOffset ?: 0f
-    )
+    val topAppBarState = rememberTopAppBarState()
     val scrollBehavior = if (isSearchMode) {
         TopAppBarDefaults.pinnedScrollBehavior(topAppBarState)
     } else {
         TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
     }
 
-    // Simple navigation bar visibility - always visible for now
-    var isBottomNavVisible by remember { mutableStateOf(true) }
+    // Bottom navigation bar visibility controlled by scroll
+    val isBottomNavVisible = true
 
     // Calculate total notification count for badge
     val totalNotificationCount = remember {
@@ -176,32 +236,49 @@ fun DashboardScreen(
 
     val uriHandler = LocalUriHandler.current
 
-    ModernSidebar(
+    GlobalSidebar(
         drawerState = drawerState,
+        relayCategories = relayCategories,
+        feedState = homeFeedState,
+        selectedDisplayName = feedStateViewModel.getHomeDisplayName(),
         onItemClick = { itemId ->
-            when (itemId) {
-                "user_profile" -> {
+            when {
+                itemId.startsWith("relay_category:") -> {
+                    val categoryId = itemId.removePrefix("relay_category:")
+                    val category = relayCategories.firstOrNull { it.id == categoryId }
+                    val relayUrls = category?.relays?.map { it.url } ?: emptyList()
+                    if (relayUrls.isNotEmpty()) {
+                        feedStateViewModel.setHomeSelectedCategory(categoryId, category?.name)
+                        viewModel.loadNotesFromFavoriteCategory(relayUrls)
+                    }
+                }
+                itemId.startsWith("relay:") -> {
+                    val relayUrl = itemId.removePrefix("relay:")
+                    val relay = relayCategories.flatMap { it.relays }.firstOrNull { it.url == relayUrl }
+                    feedStateViewModel.setHomeSelectedRelay(relayUrl, relay?.displayName)
+                    viewModel.loadNotesFromSpecificRelay(relayUrl)
+                }
+                itemId == "user_profile" -> {
                     onNavigateTo("user_profile")
                 }
-                "relays" -> {
+                itemId == "relays" -> {
                     onNavigateTo("relays")
                 }
-                "login" -> {
+                itemId == "login" -> {
                     onLoginClick?.invoke()
                 }
-                "logout" -> {
-                    // Handle logout - for now just navigate to settings
-                    // In real app, this would call authViewModel.logout()
+                itemId == "logout" -> {
                     onNavigateTo("settings")
                 }
-                "settings" -> {
+                itemId == "settings" -> {
                     onNavigateTo("settings")
                 }
                 else -> viewModel.onSidebarItemClick(itemId)
             }
         },
-        authState = authState,
-        relays = relayUiState.relays,
+        onToggleCategory = { categoryId ->
+            feedStateViewModel.toggleHomeExpandedCategory(categoryId)
+        },
         modifier = modifier
     ) {
         Scaffold(
@@ -302,6 +379,7 @@ fun DashboardScreen(
                                         listState.scrollToItem(0)
                                     }
                                 }
+                                "topics" -> onNavigateTo("topics")
                                 "messages" -> onNavigateTo("messages")
                                 "relays" -> onNavigateTo("relays")
                                 "wallet" -> onNavigateTo("wallet")
@@ -393,7 +471,7 @@ fun DashboardScreen(
     if (showZapConfigDialog) {
         com.example.views.ui.components.ZapConfigurationDialog(
             onDismiss = { showZapConfigDialog = false },
-            onOpenWalletSettings = { 
+            onOpenWalletSettings = {
                 showZapConfigDialog = false
                 showWalletConnectDialog = true
             }

@@ -50,7 +50,7 @@ object SampleData {
         Note(
             id = "announcement-1",
             author = sampleAuthors[5], // Tekkadan
-            content = "🎉 Exciting news! Check out the new zap menus in notes and comments! ⚡️ Feedback is warmly welcomed at https://github.com/TekkadanPlays/Ribbit/discussions 🐸",
+            content = "🎉 Exciting news! Check out the new zap menus in notes and comments! ⚡️ Feedback is warmly welcomed at https://github.com/TekkadanPlays/ribbit-android/discussions/3 🐸",
             timestamp = System.currentTimeMillis() - 1800000, // 30 minutes ago
             likes = 156,
             shares = 34,
@@ -165,7 +165,7 @@ object SampleData {
             hashtags = listOf("SoftwareDevelopment", "ProblemSolving", "UserExperience")
         )
     )
-    
+
     // Sample comments with deep nesting for testing conversation threads
     val sampleComments = listOf(
         Comment(

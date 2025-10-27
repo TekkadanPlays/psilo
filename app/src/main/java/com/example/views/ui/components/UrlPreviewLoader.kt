@@ -25,28 +25,27 @@ fun UrlPreviewLoader(
     onUrlLongClick: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
-    var previewState by remember(url) { 
-        mutableStateOf<UrlPreviewState>(
+
+    // ✅ FIX: Use stable state management to prevent recomposition
+    val previewState by remember(url) {
+        derivedStateOf {
             urlPreviewCache.getLoadingState(url) ?: UrlPreviewState.Loading
-        )
+        }
     }
-    
-    // Check cache first
+
+    // ✅ FIX: Use LaunchedEffect with proper key to prevent unnecessary recomposition
     LaunchedEffect(url) {
         val cached = urlPreviewCache.get(url)
-        if (cached != null) {
-            previewState = UrlPreviewState.Loaded(cached)
-        } else if (!urlPreviewCache.isLoading(url)) {
+        if (cached == null && !urlPreviewCache.isLoading(url)) {
             // Start loading if not already loading
             scope.launch {
                 urlPreviewCache.setLoadingState(url, UrlPreviewState.Loading)
                 val result = urlPreviewService.fetchPreview(url)
                 urlPreviewCache.setLoadingState(url, result)
-                previewState = result
             }
         }
     }
-    
+
     when (val currentState = previewState) {
         is UrlPreviewState.Loading -> {
             UrlPreviewLoadingCard(url = url, modifier = modifier)
@@ -67,10 +66,9 @@ fun UrlPreviewLoader(
                 onRetry = {
                     scope.launch {
                         urlPreviewCache.remove(url)
-                        previewState = UrlPreviewState.Loading
+                        urlPreviewCache.setLoadingState(url, UrlPreviewState.Loading)
                         val result = urlPreviewService.fetchPreview(url)
                         urlPreviewCache.setLoadingState(url, result)
-                        previewState = result
                     }
                 }
             )
@@ -95,8 +93,8 @@ private fun UrlPreviewLoadingCard(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
+            SageLoadingIndicator(
+                size = 24.dp,
                 strokeWidth = 2.dp
             )
             Spacer(modifier = Modifier.width(12.dp))

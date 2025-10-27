@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
@@ -170,22 +171,25 @@ private fun NoteCardContent(
                 lineHeight = 20.sp
             )
 
-            // URL Previews
+            // URL Previews - ✅ FIX: Use stable keys and prevent height changes
             if (note.urlPreviews.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    note.urlPreviews.forEach { previewInfo ->
-                        UrlPreviewCard(
-                            previewInfo = previewInfo,
-                            onUrlClick = { url ->
-                                // Handle URL click - could open in browser
-                            },
-                            onUrlLongClick = { url ->
-                                // Handle URL long click - could show context menu
-                            }
-                        )
+                    note.urlPreviews.forEachIndexed { index, previewInfo ->
+                        // ✅ FIX: Use stable key to prevent recomposition
+                        key(previewInfo.url) {
+                            UrlPreviewCard(
+                                previewInfo = previewInfo,
+                                onUrlClick = { url ->
+                                    // Handle URL click - could open in browser
+                                },
+                                onUrlLongClick = { url ->
+                                    // Handle URL long click - could show context menu
+                                }
+                            )
+                        }
                     }
                 }
             }

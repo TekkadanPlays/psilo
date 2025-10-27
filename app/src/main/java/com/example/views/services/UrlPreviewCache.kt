@@ -39,8 +39,9 @@ class UrlPreviewCache {
     
     /**
      * Set loading state for URL
+     * ✅ FIX: Make this function synchronous to prevent blocking
      */
-    suspend fun setLoadingState(url: String, state: UrlPreviewState) = mutex.withLock {
+    fun setLoadingState(url: String, state: UrlPreviewState) {
         when (state) {
             is UrlPreviewState.Loaded -> {
                 loadingStates.remove(url)
@@ -98,3 +99,4 @@ data class CacheStats(
     val maxSize: Int,
     val loadingCount: Int
 )
+

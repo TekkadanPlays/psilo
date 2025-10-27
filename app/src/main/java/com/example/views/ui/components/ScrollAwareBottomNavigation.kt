@@ -37,13 +37,13 @@ fun ScrollAwareBottomNavigationBar(
     modifier: Modifier = Modifier
 ) {
     val localDensity = LocalDensity.current
-    
+
     // Calculate bottom bar height based on scroll state
     var bottomBarInitialHeight by remember { mutableStateOf(0.dp) }
     val bottomBarMeasureHeightModifier = Modifier.onGloballyPositioned { layoutCoordinates ->
         bottomBarInitialHeight = with(localDensity) { layoutCoordinates.size.height.toDp() }
     }
-    
+
     val bottomBarRealHeight by remember(topAppBarState) {
         derivedStateOf {
             with(localDensity) {
@@ -51,17 +51,17 @@ fun ScrollAwareBottomNavigationBar(
             }
         }
     }
-    
+
     val isBottomBarVisible by remember {
         derivedStateOf {
             bottomBarInitialHeight.isZeroOrNavigationBarFullHeight() || bottomBarRealHeight > 0.dp
         }
     }
-    
+
     val focusModeOn by remember(topAppBarState) {
         derivedStateOf { topAppBarState.collapsedFraction > 0.5f }
     }
-    
+
     AnimatedVisibility(
         visible = isBottomBarVisible && isVisible,
         enter = EnterTransition.None,

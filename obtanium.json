@@ -26,7 +26,7 @@
       "changelog": "Clean v0.0.3 release with Lightning Zaps and Wallet Connect functionality. Connect your Lightning wallet to send zaps to posts and comments.",
       "minSdk": 35,
       "targetSdk": 36,
-      "packageId": "com.tekkadan.ribbit",
+      "packageId": "com.example.views",
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE"

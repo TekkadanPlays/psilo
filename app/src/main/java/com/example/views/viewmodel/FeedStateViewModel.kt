@@ -1,0 +1,183 @@
+package com.example.views.viewmodel
+
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * ViewModel to manage separate feed states for Home and Topics feeds
+ * Preserves sidebar state, scroll position, and selected relays per feed
+ */
+class FeedStateViewModel : ViewModel() {
+
+    // Home feed state
+    private val _homeFeedState = MutableStateFlow(FeedState())
+    val homeFeedState: StateFlow<FeedState> = _homeFeedState.asStateFlow()
+
+    // Topics feed state
+    private val _topicsFeedState = MutableStateFlow(FeedState())
+    val topicsFeedState: StateFlow<FeedState> = _topicsFeedState.asStateFlow()
+
+    /**
+     * Update home feed state
+     */
+    fun updateHomeFeedState(update: FeedState.() -> FeedState) {
+        _homeFeedState.value = update(_homeFeedState.value)
+    }
+
+    /**
+     * Update topics feed state
+     */
+    fun updateTopicsFeedState(update: FeedState.() -> FeedState) {
+        _topicsFeedState.value = update(_topicsFeedState.value)
+    }
+
+    /**
+     * Set selected relay category for home feed
+     */
+    fun setHomeSelectedCategory(categoryId: String?, categoryName: String?) {
+        _homeFeedState.value = _homeFeedState.value.copy(
+            selectedCategoryId = categoryId,
+            selectedCategoryName = categoryName,
+            selectedRelayUrl = null,
+            selectedRelayName = null
+        )
+    }
+
+    /**
+     * Set selected relay for home feed
+     */
+    fun setHomeSelectedRelay(relayUrl: String?, relayName: String?) {
+        _homeFeedState.value = _homeFeedState.value.copy(
+            selectedCategoryId = null,
+            selectedCategoryName = null,
+            selectedRelayUrl = relayUrl,
+            selectedRelayName = relayName
+        )
+    }
+
+    /**
+     * Set selected relay category for topics feed
+     */
+    fun setTopicsSelectedCategory(categoryId: String?, categoryName: String?) {
+        _topicsFeedState.value = _topicsFeedState.value.copy(
+            selectedCategoryId = categoryId,
+            selectedCategoryName = categoryName,
+            selectedRelayUrl = null,
+            selectedRelayName = null
+        )
+    }
+
+    /**
+     * Set selected relay for topics feed
+     */
+    fun setTopicsSelectedRelay(relayUrl: String?, relayName: String?) {
+        _topicsFeedState.value = _topicsFeedState.value.copy(
+            selectedCategoryId = null,
+            selectedCategoryName = null,
+            selectedRelayUrl = relayUrl,
+            selectedRelayName = relayName
+        )
+    }
+
+    /**
+     * Toggle expanded state for a category in home feed
+     */
+    fun toggleHomeExpandedCategory(categoryId: String) {
+        val current = _homeFeedState.value.expandedCategories
+        _homeFeedState.value = _homeFeedState.value.copy(
+            expandedCategories = if (categoryId in current) {
+                current - categoryId
+            } else {
+                current + categoryId
+            }
+        )
+    }
+
+    /**
+     * Toggle expanded state for a category in topics feed
+     */
+    fun toggleTopicsExpandedCategory(categoryId: String) {
+        val current = _topicsFeedState.value.expandedCategories
+        _topicsFeedState.value = _topicsFeedState.value.copy(
+            expandedCategories = if (categoryId in current) {
+                current - categoryId
+            } else {
+                current + categoryId
+            }
+        )
+    }
+
+    /**
+     * Save scroll position for home feed
+     */
+    fun saveHomeScrollPosition(firstVisibleItem: Int, scrollOffset: Int) {
+        _homeFeedState.value = _homeFeedState.value.copy(
+            scrollPosition = ScrollPosition(firstVisibleItem, scrollOffset)
+        )
+    }
+
+    /**
+     * Save scroll position for topics feed
+     */
+    fun saveTopicsScrollPosition(firstVisibleItem: Int, scrollOffset: Int) {
+        _topicsFeedState.value = _topicsFeedState.value.copy(
+            scrollPosition = ScrollPosition(firstVisibleItem, scrollOffset)
+        )
+    }
+
+    /**
+     * Get display name for current home feed selection
+     */
+    fun getHomeDisplayName(): String {
+        val state = _homeFeedState.value
+        return when {
+            state.selectedCategoryName != null -> state.selectedCategoryName
+            state.selectedRelayName != null -> state.selectedRelayName
+            else -> "All Relays"
+        }
+    }
+
+    /**
+     * Get display name for current topics feed selection
+     */
+    fun getTopicsDisplayName(): String {
+        val state = _topicsFeedState.value
+        return when {
+            state.selectedCategoryName != null -> state.selectedCategoryName
+            state.selectedRelayName != null -> state.selectedRelayName
+            else -> "All Relays"
+        }
+    }
+}
+
+/**
+ * State for a single feed (Home or Topics)
+ */
+data class FeedState(
+    // Selected relay category
+    val selectedCategoryId: String? = null,
+    val selectedCategoryName: String? = null,
+
+    // Selected individual relay
+    val selectedRelayUrl: String? = null,
+    val selectedRelayName: String? = null,
+
+    // Expanded categories in sidebar
+    val expandedCategories: Set<String> = emptySet(),
+
+    // Scroll position
+    val scrollPosition: ScrollPosition = ScrollPosition(),
+
+    // Sidebar drawer state
+    val isSidebarOpen: Boolean = false
+)
+
+/**
+ * Scroll position for feed list
+ */
+data class ScrollPosition(
+    val firstVisibleItem: Int = 0,
+    val scrollOffset: Int = 0
+)

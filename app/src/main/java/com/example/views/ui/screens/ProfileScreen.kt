@@ -1,7 +1,5 @@
 package com.example.views.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,28 +9,31 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.views.R
 import com.example.views.data.Author
 import com.example.views.data.Note
 import com.example.views.data.SampleData
 import com.example.views.ui.components.ModernSearchBar
 import com.example.views.ui.components.NoteCard
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     author: Author,
@@ -45,14 +46,68 @@ fun ProfileScreen(
     onProfileClick: (String) -> Unit = {},
     onNavigateTo: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    topAppBarState: TopAppBarState = rememberTopAppBarState(),
+    onLoginClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Use predictive back for smooth gesture navigation
     androidx.activity.compose.BackHandler {
         onBackClick()
     }
-    
+
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
+
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "profile",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    // Search button for searching notes on user's profile
+                    IconButton(onClick = { /* TODO: Search profile notes */ }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search profile",
+                            tint = Color.White
+                        )
+                    }
+
+                    // Profile/Login button
+                    if (onLoginClick != null) {
+                        IconButton(onClick = onLoginClick) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Profile",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                },
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        }
     ) { paddingValues ->
         LazyColumn(
             state = listState,
@@ -68,11 +123,11 @@ fun ProfileScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            
+
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
-            
+
             // Notes List
             items(authorNotes.size) { index ->
                 val note = authorNotes[index]
@@ -122,9 +177,9 @@ private fun ProfileHeader(
                     )
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Name and verification
             Row(
                 verticalAlignment = Alignment.CenterVertically
@@ -146,9 +201,9 @@ private fun ProfileHeader(
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             // Username
             Text(
                 text = "@${author.username}",
@@ -157,9 +212,9 @@ private fun ProfileHeader(
                 ),
                 textAlign = TextAlign.Center
             )
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             // Stats Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -181,9 +236,9 @@ private fun ProfileHeader(
                     onClick = { /* TODO: Navigate to following */ }
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -195,7 +250,7 @@ private fun ProfileHeader(
                 ) {
                     Text("Follow")
                 }
-                
+
                 OutlinedButton(
                     onClick = { /* TODO: Implement message */ },
                     modifier = Modifier.weight(1f)
@@ -238,7 +293,7 @@ private fun StatItem(
 fun ProfileScreenPreview() {
     val sampleAuthor = SampleData.sampleNotes[0].author
     val sampleNotes = SampleData.sampleNotes.take(3)
-    
+
     ProfileScreen(
         author = sampleAuthor,
         authorNotes = sampleNotes,
