@@ -791,6 +791,7 @@ fun DashboardScreen(
                     ) { note ->
                         NoteCard(
                             note = note,
+                            rootAuthorId = note.author.id,
                             onLike = { noteId -> viewModel.toggleLike(noteId) },
                             onShare = { noteId -> /* Handle share */ },
                             onComment = { noteId -> onThreadClick(note, null) },

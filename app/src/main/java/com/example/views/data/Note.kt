@@ -35,8 +35,10 @@ data class Note(
     val rootNoteId: String? = null,
     /** Direct parent reply/note id (NIP-10 "reply" e-tag); used to build threaded reply chains for kind-1. */
     val replyToId: String? = null,
-    /** Nostr event kind (1 = text note, 1111 = thread reply). Used for NIP-25 reaction "k" tag. */
-    val kind: Int = 1
+    /** Nostr event kind (1 = text note, 11 = topic root, 1111 = thread reply). Used for NIP-25 reaction "k" tag. */
+    val kind: Int = 1,
+    /** Topic/subject title for kind-11 topic roots and kind-1111 thread roots; shown as SUBJECT row when set. */
+    val topicTitle: String? = null
 )
 
 @Immutable

@@ -47,6 +47,7 @@ import com.example.views.utils.UrlDetector
 import com.example.views.utils.normalizeAuthorIdForCache
 import kotlinx.coroutines.flow.filter
 import com.example.views.repository.QuotedNoteCache
+import com.example.views.ui.theme.NoteBodyTextStyle
 import com.example.views.utils.NoteContentBlock
 import com.example.views.utils.buildNoteContentWithInlinePreviews
 import java.text.SimpleDateFormat
@@ -107,6 +108,8 @@ fun ModernNoteCard(
     overrideReplyCount: Int? = null,
     overrideZapCount: Int? = null,
     overrideReactions: List<String>? = null,
+    /** When true (e.g. thread view), link embed shows expanded description. */
+    expandLinkPreviewInThread: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     NoteCardContent(
@@ -132,6 +135,7 @@ fun ModernNoteCard(
         overrideReplyCount = overrideReplyCount,
         overrideZapCount = overrideZapCount,
         overrideReactions = overrideReactions,
+        expandLinkPreviewInThread = expandLinkPreviewInThread,
         modifier = modifier
     )
 }
@@ -161,6 +165,7 @@ private fun NoteCardContent(
     overrideReplyCount: Int? = null,
     overrideZapCount: Int? = null,
     overrideReactions: List<String>? = null,
+    expandLinkPreviewInThread: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var isZapMenuExpanded by remember { mutableStateOf(false) }
@@ -229,10 +234,63 @@ private fun NoteCardContent(
                 RelayOrbs(relayUrls = note.displayRelayUrls(), onRelayClick = onRelayClick)
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Content: link in text; first urlPreview as small image top-right (no title block)
             val uriHandler = LocalUriHandler.current
+            val hasBodyText = note.content.isNotBlank() || note.quotedEventIds.isNotEmpty()
+
+            // Optional SUBJECT/TOPIC row (kind-11 / kind-1111)
+            val topicTitle = note.topicTitle
+            if (!topicTitle.isNullOrEmpty()) {
+                Text(
+                    text = topicTitle,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // HTML embed at top: edge-to-edge in feed, padded in thread view
+            val firstPreview = note.urlPreviews.firstOrNull()
+            if (firstPreview != null) {
+                Kind1LinkEmbedBlock(
+                    previewInfo = firstPreview,
+                    expandDescriptionInThread = expandLinkPreviewInThread,
+                    inThreadView = expandLinkPreviewInThread,
+                    onUrlClick = { url -> uriHandler.openUri(url) },
+                    modifier = if (expandLinkPreviewInThread) Modifier.padding(horizontal = 16.dp) else Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // Counts row: between embed and body
+            val replyCountVal = (overrideReplyCount ?: note.comments).coerceAtLeast(0)
+            val zapCount = (overrideZapCount ?: note.zapCount).coerceAtLeast(0)
+            val reactionCount = (overrideReactions ?: note.reactions).size.coerceAtLeast(0)
+            val countParts = buildList {
+                add("$replyCountVal repl${if (replyCountVal == 1) "y" else "ies"}")
+                add("$reactionCount reaction${if (reactionCount == 1) "" else "s"}")
+                add("$zapCount zap${if (zapCount == 1) "" else "s"}")
+                if (isZapped && (myZappedAmount ?: 0L) > 0L) add("You zapped ${com.example.views.utils.ZapUtils.formatZapAmount(myZappedAmount!!)}")
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = countParts.joinToString(" • "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Body zone: only when there is text or quoted notes; otherwise embed/media only (no highlight box)
             val linkStyle = SpanStyle(color = MaterialTheme.colorScheme.primary)
             val contentBlocks = remember(note.content, note.mediaUrls, note.urlPreviews) {
                 buildNoteContentWithInlinePreviews(
@@ -243,14 +301,21 @@ private fun NoteCardContent(
                     profileCache
                 )
             }
-            val firstPreview = note.urlPreviews.firstOrNull()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Top
+            if (hasBodyText) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RectangleShape,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -262,8 +327,7 @@ private fun NoteCardContent(
                                 if (annotated.isNotEmpty()) {
                                     ClickableNoteContent(
                                         text = annotated,
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            lineHeight = 20.sp,
+                                        style = NoteBodyTextStyle.copy(
                                             color = MaterialTheme.colorScheme.onSurface
                                         ),
                                         onClick = { offset ->
@@ -337,8 +401,12 @@ private fun NoteCardContent(
                             }
                         }
                     }
-                    if (note.mediaUrls.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+            }
+            if (note.mediaUrls.isNotEmpty()) {
+                // Media only (no body text): edge-to-edge
                 val mediaList = note.mediaUrls.take(10)
                 val pagerState = rememberPagerState(
                     pageCount = { mediaList.size },
@@ -427,14 +495,6 @@ private fun NoteCardContent(
                         }
                     }
                 }
-                    }
-                }
-                if (firstPreview != null) {
-                    UrlPreviewThumbnail(
-                        previewInfo = firstPreview,
-                        onUrlClick = { url -> uriHandler.openUri(url) }
-                    )
-                }
             }
 
             // Hashtags as chips
@@ -472,30 +532,6 @@ private fun NoteCardContent(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-
-            // Counts row: always show "x replies • x reactions • x zaps" (and "You zapped X sats" when applicable)
-            val replyCountVal = (overrideReplyCount ?: note.comments).coerceAtLeast(0)
-            val zapCount = (overrideZapCount ?: note.zapCount).coerceAtLeast(0)
-            val reactionCount = (overrideReactions ?: note.reactions).size.coerceAtLeast(0)
-            val parts = buildList {
-                add("$replyCountVal repl${if (replyCountVal == 1) "y" else "ies"}")
-                add("$reactionCount reaction${if (reactionCount == 1) "" else "s"}")
-                add("$zapCount zap${if (zapCount == 1) "" else "s"}")
-                if (isZapped && (myZappedAmount ?: 0L) > 0L) add("You zapped ${com.example.views.utils.ZapUtils.formatZapAmount(myZappedAmount!!)}")
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = parts.joinToString(" • "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
             // Action buttons
             Row(

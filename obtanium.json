@@ -19,6 +19,28 @@
   "banner": "https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/banner.png",
   "releases": [
     {
+      "version": "0.1.2",
+      "versionCode": 6,
+      "releaseDate": "2026-02-08",
+      "downloadUrl": "https://github.com/TekkadanPlays/ribbit-android/releases/download/v0.1.2/ribbit-v0.1.2.apk",
+      "changelog": "Kind-1111 merge/UI fix, edge-to-edge embed and images in feed, conditional body highlight, View relays in kind-1111 replies, relay orbs on kind-11 root, OP styling (shortened chip, OP in feed), README Obtainium link.",
+      "minSdk": 35,
+      "targetSdk": 36,
+      "packageId": "com.example.views.ribbit",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "features": [
+        "Kind-1111 optimistic reply merge fix",
+        "Edge-to-edge link embed and images in feed",
+        "Body highlight only when note has text",
+        "View relays in topic reply dropdown",
+        "Relay orbs on kind-11 thread root",
+        "OP chip: name only in highlight, OP in feed"
+      ]
+    },
+    {
       "version": "0.1.1",
       "versionCode": 5,
       "releaseDate": "2026-02-08",

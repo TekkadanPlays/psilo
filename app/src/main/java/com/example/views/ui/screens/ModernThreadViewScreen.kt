@@ -96,6 +96,10 @@ private val ThreadLineColor = SageGreen80
 /** Max indent depth; beyond this show "Read N more replies" and open sub-thread on tap. */
 private const val MAX_THREAD_DEPTH = 4
 
+/** Stable key for a reply so optimistic→real replacement doesn't change list key (avoids UI jump). */
+private fun logicalReplyKey(reply: ThreadReply): String =
+    "logical:${reply.author.id}:${reply.content}:${reply.replyToId}"
+
 /** Find a ThreadedReply node by reply id in the tree. */
 private fun findThreadedReplyById(tree: List<ThreadedReply>, id: String): ThreadedReply? =
     tree.firstOrNull { it.reply.id == id } ?: tree.firstNotNullOfOrNull { findThreadedReplyById(it.children, id) }
@@ -187,6 +191,8 @@ fun ModernThreadViewScreen(
     onHeaderQrCodeClick: () -> Unit = {},
     onHeaderSettingsClick: () -> Unit = {},
     accountNpub: String? = null,
+    /** Current user Author for optimistic reply (kind-1111); when set, reply appears immediately. */
+    currentUserAuthor: Author? = null,
     modifier: Modifier = Modifier
 ) {
     var isRefreshing by remember { mutableStateOf(false) }
@@ -255,6 +261,8 @@ fun ModernThreadViewScreen(
     // ✅ ZAP MENU AWARENESS: Global state for zap menu closure (like feed cards)
     var shouldCloseZapMenus by remember { mutableStateOf(false) }
     var expandedZapMenuCommentId by remember { mutableStateOf<String?>(null) }
+    /** Reply ID whose "View relays" row is shown; toggled from dropdown. */
+    var expandedRelaysReplyId by remember { mutableStateOf<String?>(null) }
 
     // ✅ ZAP CONFIGURATION: Dialog state for editing zap amounts
     var showZapConfigDialog by remember { mutableStateOf(false) }
@@ -419,6 +427,7 @@ fun ModernThreadViewScreen(
                         onRelayClick = { relayUrlToShowInfo = it },
                         shouldCloseZapMenus = shouldCloseZapMenus,
                         accountNpub = accountNpub,
+                        expandLinkPreviewInThread = true,
                         extraMoreMenuItems = listOf(
                             Pair("Copy text") {
                                 copyTextContent = note.content
@@ -548,6 +557,8 @@ fun ModernThreadViewScreen(
                                 NoteCard(
                                 note = reply.toNote(),
                                 showActionRow = expandedControlsReplyId == reply.id,
+                                rootAuthorId = note.author.id,
+                                expandLinkPreviewInThread = true,
                                 onLike = { replyId ->
                                     if (replyKind == 1) {
                                         kind1RepliesViewModel.likeReply(replyId)
@@ -642,12 +653,13 @@ fun ModernThreadViewScreen(
                 }
                 itemsIndexed(
                     items = displayList,
-                    key = { _, it -> it.reply.id }
+                    key = { _, it -> logicalReplyKey(it.reply) }
                 ) { index, threadedReply ->
                     Column(modifier = Modifier.fillMaxWidth()) {
                         ThreadedReplyCard(
                             threadedReply = threadedReply,
                             isLastRootReply = index == displayList.size - 1,
+                            rootAuthorId = note.author.id,
                             commentStates = commentStates,
                             onLike = { replyId ->
                                 if (replyKind == 1) kind1RepliesViewModel.likeReply(replyId)
@@ -665,6 +677,8 @@ fun ModernThreadViewScreen(
                             onZapSettings = { showZapConfigDialog = true },
                             expandedControlsReplyId = expandedControlsReplyId,
                             onExpandedControlsReplyChange = onExpandedControlsReplyChange,
+                            expandedRelaysReplyId = expandedRelaysReplyId,
+                            onRelaysExpandedReplyChange = { expandedRelaysReplyId = it },
                             onReadMoreReplies = { replyId -> rootReplyIdStack = rootReplyIdStack + replyId },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -811,6 +825,14 @@ fun ModernThreadViewScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        if (replyKind == 1111 && currentUserAuthor != null) {
+                            threadRepliesViewModel.addOptimisticReply(
+                                rootId = note.id,
+                                parentId = parentReplyId,
+                                content = replyContent,
+                                currentUserAuthor = currentUserAuthor
+                            )
+                        }
                         val err = onPublishThreadReply(note.id, note.author.id, parentReplyId, parentPubkey, replyContent)
                         if (err != null) {
                             android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
@@ -1311,6 +1333,8 @@ private fun formatReplyTimestamp(timestamp: Long): String {
 private fun ThreadedReplyCard(
     threadedReply: ThreadedReply,
     isLastRootReply: Boolean = true,
+    /** Root note author id; when reply.author matches, show OP highlight and "OP" label. */
+    rootAuthorId: String? = null,
     commentStates: MutableMap<String, CommentState>,
     onLike: (String) -> Unit,
     onReply: (String) -> Unit,
@@ -1324,15 +1348,20 @@ private fun ThreadedReplyCard(
     /** Which reply ID has controls expanded; null = all compact. */
     expandedControlsReplyId: String? = null,
     onExpandedControlsReplyChange: (String?) -> Unit = {},
+    /** Which reply ID has "View relays" row expanded; toggled from dropdown. */
+    expandedRelaysReplyId: String? = null,
+    onRelaysExpandedReplyChange: (String?) -> Unit = {},
     /** When level >= MAX_THREAD_DEPTH and there are children, tap "Read N more replies" opens sub-thread. */
     onReadMoreReplies: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val reply = threadedReply.reply
+    val replyKey = logicalReplyKey(reply)
     val isControlsExpanded = expandedControlsReplyId == reply.id
+    val isRelaysExpanded = expandedRelaysReplyId == reply.id
     val onToggleControls: () -> Unit = { onExpandedControlsReplyChange(if (expandedControlsReplyId == reply.id) null else reply.id) }
     val level = threadedReply.level
-    val state = commentStates.getOrPut(reply.id) { CommentState() }
+    val state = commentStates.getOrPut(replyKey) { CommentState() }
     val canCollapse = true // allow collapsing single/leaf replies as well as branches
     val threadLineWidth = 2.dp
     val indentPerLevel = 1.dp
@@ -1359,14 +1388,14 @@ private fun ThreadedReplyCard(
                 .combinedClickable(
                     onClick = {
                         if (state.isCollapsed) {
-                            commentStates[reply.id] = state.copy(isCollapsed = false, isExpanded = true)
+                            commentStates[replyKey] = state.copy(isCollapsed = false, isExpanded = true)
                         } else {
                             onToggleControls()
                         }
                     },
                     onLongClick = {
                         if (canCollapse && !state.isCollapsed) {
-                            commentStates[reply.id] = state.copy(isCollapsed = true, isExpanded = false)
+                            commentStates[replyKey] = state.copy(isCollapsed = true, isExpanded = false)
                         }
                     }
                 ),
@@ -1422,21 +1451,67 @@ private fun ThreadedReplyCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = reply.author.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = formatReplyTimestamp(reply.timestamp),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val isOp = rootAuthorId != null && com.example.views.utils.normalizeAuthorIdForCache(reply.author.id) == com.example.views.utils.normalizeAuthorIdForCache(rootAuthorId)
+                                        if (isOp) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Surface(
+                                                    color = Color(0xFF8E30EB),
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = reply.author.displayName,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "OP",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        } else {
+                                            Text(
+                                                text = reply.author.displayName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "${reply.likes} • ${formatReplyTimestamp(reply.timestamp)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                             val replyRelayUrls = reply.relayUrls.distinct().take(6)
                             if (replyRelayUrls.isNotEmpty()) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 RelayOrbs(relayUrls = replyRelayUrls, onRelayClick = onRelayClick)
+                            }
+                        }
+
+                        if (isRelaysExpanded && reply.relayUrls.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                RelayOrbs(
+                                    relayUrls = reply.relayUrls.distinct().take(8),
+                                    onRelayClick = onRelayClick
+                                )
                             }
                         }
 
@@ -1454,6 +1529,18 @@ private fun ThreadedReplyCard(
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            CompactModernButton(
+                                icon = Icons.Outlined.ArrowUpward,
+                                contentDescription = "Upvote",
+                                isActive = false,
+                                onClick = { /* placeholder for future voting */ }
+                            )
+                            CompactModernButton(
+                                icon = Icons.Outlined.ArrowDownward,
+                                contentDescription = "Downvote",
+                                isActive = false,
+                                onClick = { /* placeholder for future voting */ }
+                            )
                             CompactModernButton(
                             icon = if (reply.isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                             contentDescription = "Like",
@@ -1485,6 +1572,14 @@ private fun ThreadedReplyCard(
                                     expanded = showMore,
                                     onDismissRequest = { showMore = false }
                                 ) {
+                                    DropdownMenuItem(
+                                        text = { Text("View relays") },
+                                        onClick = {
+                                            onRelaysExpandedReplyChange(if (isRelaysExpanded) null else reply.id)
+                                            showMore = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Public, contentDescription = null) }
+                                    )
                                     DropdownMenuItem(
                                         text = { Text("Share") },
                                         onClick = { showMore = false },
@@ -1613,6 +1708,7 @@ private fun ThreadedReplyCard(
                     ThreadedReplyCard(
                         threadedReply = childReply,
                         isLastRootReply = true,
+                        rootAuthorId = rootAuthorId,
                         commentStates = commentStates,
                         onLike = onLike,
                         onReply = onReply,
@@ -1625,6 +1721,8 @@ private fun ThreadedReplyCard(
                         onZapSettings = onZapSettings,
                         expandedControlsReplyId = expandedControlsReplyId,
                         onExpandedControlsReplyChange = onExpandedControlsReplyChange,
+                        expandedRelaysReplyId = expandedRelaysReplyId,
+                        onRelaysExpandedReplyChange = onRelaysExpandedReplyChange,
                         onReadMoreReplies = onReadMoreReplies,
                         modifier = Modifier.fillMaxWidth()
                     )

@@ -30,6 +30,10 @@ data class UrlPreviewInfo(
     fun hasCompleteInfo(): Boolean = title.isNotEmpty() && description.isNotEmpty() && imageUrl.isNotEmpty()
     
     fun hasBasicInfo(): Boolean = title.isNotEmpty() || imageUrl.isNotEmpty()
+
+    /** Root domain for display (e.g. "irishstar.com" from full URL). */
+    val rootDomain: String
+        get() = verifiedUrl?.host ?: url
 }
 
 /**

@@ -38,6 +38,7 @@ import com.example.views.repository.ReactionsRepository
 import com.example.views.utils.NoteContentBlock
 import com.example.views.utils.normalizeAuthorIdForCache
 import kotlinx.coroutines.flow.filter
+import com.example.views.ui.theme.NoteBodyTextStyle
 import com.example.views.utils.buildNoteContentWithInlinePreviews
 import com.example.views.utils.UrlDetector
 import coil.compose.AsyncImage
@@ -117,6 +118,10 @@ fun NoteCard(
     overrideReactions: List<String>? = null,
     /** When false, hides counts row and action row (like/reply/zap/more); used for compact reply in thread. */
     showActionRow: Boolean = true,
+    /** When set (e.g. thread view), author matching this id gets OP highlight and "OP" label; score • time shown on author line. */
+    rootAuthorId: String? = null,
+    /** When true (e.g. thread view), link embed shows expanded description. */
+    expandLinkPreviewInThread: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var isZapMenuExpanded by remember { mutableStateOf(false) }
@@ -162,41 +167,136 @@ fun NoteCard(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = authorDisplayLabel(displayAuthor),
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                        if (displayAuthor.isVerified) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = "Verified",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val isOp = rootAuthorId != null && normalizeAuthorIdForCache(note.author.id) == normalizeAuthorIdForCache(rootAuthorId)
+                            if (isOp) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        color = Color(0xFF8E30EB),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = authorDisplayLabel(displayAuthor),
+                                            style = MaterialTheme.typography.titleSmall.copy(
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "OP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = authorDisplayLabel(displayAuthor),
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                if (displayAuthor.isVerified) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = "Verified",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        if (rootAuthorId != null) {
+                            val formattedTime = remember(note.timestamp) { formatTimestamp(note.timestamp) }
+                            val score = note.likes
+                            Text(
+                                text = "$score • $formattedTime",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
                         }
                     }
-                    // ✅ PERFORMANCE: Memoized timestamp formatting (Thread view pattern)
-                    val formattedTime = remember(note.timestamp) {
-                        formatTimestamp(note.timestamp)
-                    }
-                    Text(
-                        text = formattedTime,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (rootAuthorId == null) {
+                        val formattedTime = remember(note.timestamp) { formatTimestamp(note.timestamp) }
+                        Text(
+                            text = formattedTime,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         )
-                    )
+                    }
                 }
                 RelayOrbs(relayUrls = note.displayRelayUrls(), onRelayClick = onRelayClick)
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Content: embedded media URLs hidden; link in text; first urlPreview as small image top-right (no title block)
             val uriHandler = LocalUriHandler.current
+            val hasBodyText = note.content.isNotBlank() || note.quotedEventIds.isNotEmpty()
+
+            // Optional SUBJECT/TOPIC row (kind-11 / kind-1111)
+            val topicTitle = note.topicTitle
+            if (!topicTitle.isNullOrEmpty()) {
+                Text(
+                    text = topicTitle,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // HTML embed at top: edge-to-edge in feed, padded in thread view
+            val firstPreview = note.urlPreviews.firstOrNull()
+            if (firstPreview != null) {
+                Kind1LinkEmbedBlock(
+                    previewInfo = firstPreview,
+                    expandDescriptionInThread = expandLinkPreviewInThread,
+                    inThreadView = expandLinkPreviewInThread,
+                    onUrlClick = { url -> uriHandler.openUri(url) },
+                    modifier = if (expandLinkPreviewInThread) Modifier.padding(horizontal = 16.dp) else Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // Counts row: between embed and body (when action row is shown)
+            if (showActionRow) {
+                val replyCountVal = (overrideReplyCount ?: note.comments).coerceAtLeast(0)
+                val zapCount = (overrideZapCount ?: note.zapCount).coerceAtLeast(0)
+                val reactionCount = (overrideReactions ?: note.reactions).size.coerceAtLeast(0)
+                val countParts = buildList {
+                    add("$replyCountVal repl${if (replyCountVal == 1) "y" else "ies"}")
+                    add("$reactionCount reaction${if (reactionCount == 1) "" else "s"}")
+                    add("$zapCount zap${if (zapCount == 1) "" else "s"}")
+                    if (isZapped && (myZappedAmount ?: 0L) > 0L) add("You zapped ${com.example.views.utils.ZapUtils.formatZapAmount(myZappedAmount!!)}")
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = countParts.joinToString(" • "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Body zone: only when there is text or quoted notes; otherwise embed/media only
             val linkStyle = SpanStyle(color = MaterialTheme.colorScheme.primary)
             val contentBlocks = remember(note.content, note.mediaUrls, note.urlPreviews) {
                 buildNoteContentWithInlinePreviews(
@@ -207,14 +307,21 @@ fun NoteCard(
                     profileCache
                 )
             }
-            val firstPreview = note.urlPreviews.firstOrNull()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Top
+            if (hasBodyText) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RectangleShape,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -226,8 +333,7 @@ fun NoteCard(
                                 if (annotated.isNotEmpty()) {
                                     ClickableNoteContent(
                                         text = annotated,
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            lineHeight = 20.sp,
+                                        style = NoteBodyTextStyle.copy(
                                             color = MaterialTheme.colorScheme.onSurface
                                         ),
                                         onClick = { offset ->
@@ -303,9 +409,11 @@ fun NoteCard(
                             }
                         }
                     }
-                    // Images from content (mediaUrls) — full width, variable height (ContentScale.Fit, no cropping)
-                    if (note.mediaUrls.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+            }
+            }
+            if (note.mediaUrls.isNotEmpty()) {
                 val mediaList = note.mediaUrls.take(10)
                 val pagerState = rememberPagerState(
                     pageCount = { mediaList.size },
@@ -394,14 +502,6 @@ fun NoteCard(
                         }
                     }
                 }
-                    }
-                }
-                if (firstPreview != null) {
-                    UrlPreviewThumbnail(
-                        previewInfo = firstPreview,
-                        onUrlClick = { url -> uriHandler.openUri(url) }
-                    )
-                }
             }
 
             // Hashtags
@@ -418,30 +518,6 @@ fun NoteCard(
 
             if (showActionRow) {
             Spacer(modifier = Modifier.height(8.dp))
-
-            // Counts row: always show "x replies • x reactions • x zaps" (and "You zapped X sats" when applicable)
-            val replyCountVal = (overrideReplyCount ?: note.comments).coerceAtLeast(0)
-            val zapCount = (overrideZapCount ?: note.zapCount).coerceAtLeast(0)
-            val reactionCount = (overrideReactions ?: note.reactions).size.coerceAtLeast(0)
-            val parts = buildList {
-                add("$replyCountVal repl${if (replyCountVal == 1) "y" else "ies"}")
-                add("$reactionCount reaction${if (reactionCount == 1) "" else "s"}")
-                add("$zapCount zap${if (zapCount == 1) "" else "s"}")
-                if (isZapped && (myZappedAmount ?: 0L) > 0L) add("You zapped ${com.example.views.utils.ZapUtils.formatZapAmount(myZappedAmount!!)}")
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = parts.joinToString(" • "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
             // Action buttons - 6 icons total with expanded hitboxes
             Row(

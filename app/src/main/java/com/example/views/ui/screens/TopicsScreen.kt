@@ -1198,7 +1198,8 @@ private fun Kind11TopicCard(
 }
 
 /**
- * Convert TopicNote to Note for navigation compatibility
+ * Convert TopicNote to Note for navigation compatibility (thread from Topics feed).
+ * Sets topicTitle and kind = 11 so the thread view shows SUBJECT/TOPIC row.
  */
 private fun com.example.views.repository.TopicNote.toNote(): Note {
     return Note(
@@ -1211,7 +1212,11 @@ private fun com.example.views.repository.TopicNote.toNote(): Note {
         comments = replyCount,
         isLiked = false,
         hashtags = hashtags,
-        mediaUrls = emptyList()
+        mediaUrls = emptyList(),
+        kind = 11,
+        topicTitle = title.ifEmpty { null },
+        relayUrl = relayUrl.ifEmpty { null },
+        relayUrls = listOfNotNull(relayUrl).filter { it.isNotEmpty() }
     )
 }
 

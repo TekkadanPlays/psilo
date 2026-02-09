@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.views.data.Author
 import com.example.views.data.NoteWithReplies
 import com.example.views.data.ThreadReply
 import com.example.views.data.ThreadedReply
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @Immutable
 data class ThreadRepliesUiState(
@@ -43,6 +45,11 @@ class ThreadRepliesViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(ThreadRepliesUiState())
     val uiState: StateFlow<ThreadRepliesUiState> = _uiState.asStateFlow()
+
+    /** Pending optimistic replies (current thread only); removed when real reply arrives. */
+    private val _optimisticReplies = MutableStateFlow<List<ThreadReply>>(emptyList())
+    /** Last repository-only replies (no optimistic) so we can re-merge when adding optimistic. */
+    private var _lastRepoReplies: List<ThreadReply> = emptyList()
 
     companion object {
         private const val TAG = "ThreadRepliesViewModel"
@@ -96,7 +103,7 @@ class ThreadRepliesViewModel : ViewModel() {
      */
     fun loadRepliesForNote(note: Note, relayUrls: List<String>) {
         Log.d(TAG, "Loading replies for note ${note.id.take(8)}... from ${relayUrls.size} relays")
-
+        _optimisticReplies.value = emptyList()
         _uiState.value = _uiState.value.copy(
             note = note,
             isLoading = true,
@@ -125,27 +132,79 @@ class ThreadRepliesViewModel : ViewModel() {
     }
 
     /**
-     * Update replies state with sorting and threading
+     * Update replies state with sorting and threading. Merges repository replies with optimistic
+     * replies and removes optimistic when a matching real reply exists.
+     * @param replies When from repository: repo-only list. When already containing opt- ids: merged list (e.g. from likeReply).
      */
     private fun updateRepliesState(replies: List<ThreadReply>) {
+        val noteId = _uiState.value.note?.id ?: return
+        val isAlreadyMerged = replies.any { it.id.startsWith("opt-") }
+        val merged = if (isAlreadyMerged) {
+            replies
+        } else {
+            _lastRepoReplies = replies
+            val optimistic = _optimisticReplies.value.filter { it.rootNoteId == noteId || it.rootNoteId == null }
+            val matched = optimistic.filter { opt ->
+                replies.any { r ->
+                    r.author.id == opt.author.id && r.content == opt.content && r.replyToId == opt.replyToId
+                }
+            }
+            if (matched.isNotEmpty()) {
+                _optimisticReplies.value = _optimisticReplies.value - matched
+            }
+            val stillPending = _optimisticReplies.value.filter { it.rootNoteId == noteId || it.rootNoteId == null }
+            replies + stillPending
+        }
+
         val sortedReplies = when (_uiState.value.sortOrder) {
-            ReplySortOrder.CHRONOLOGICAL -> replies.sortedBy { it.timestamp }
-            ReplySortOrder.REVERSE_CHRONOLOGICAL -> replies.sortedByDescending { it.timestamp }
-            ReplySortOrder.MOST_LIKED -> replies.sortedByDescending { it.likes }
+            ReplySortOrder.CHRONOLOGICAL -> merged.sortedBy { it.timestamp }
+            ReplySortOrder.REVERSE_CHRONOLOGICAL -> merged.sortedByDescending { it.timestamp }
+            ReplySortOrder.MOST_LIKED -> merged.sortedByDescending { it.likes }
         }
 
         val threadedReplies = organizeRepliesIntoThreads(sortedReplies)
 
-        val noteId = _uiState.value.note?.id
         _uiState.value = _uiState.value.copy(
             replies = sortedReplies,
             threadedReplies = threadedReplies,
-            totalReplyCount = replies.size,
+            totalReplyCount = merged.size,
             isLoading = false
         )
-        if (noteId != null) com.example.views.repository.ReplyCountCache.set(noteId, replies.size)
+        com.example.views.repository.ReplyCountCache.set(noteId, merged.size)
 
-        Log.d(TAG, "Updated replies state: ${replies.size} replies, ${threadedReplies.size} threads")
+        Log.d(TAG, "Updated replies state: ${merged.size} replies, ${threadedReplies.size} threads")
+    }
+
+    /**
+     * Add an optimistic reply so it appears immediately; removed when the real reply arrives from relays.
+     */
+    fun addOptimisticReply(
+        rootId: String,
+        parentId: String?,
+        content: String,
+        currentUserAuthor: Author
+    ) {
+        val noteId = _uiState.value.note?.id ?: return
+        if (rootId != noteId) return
+        val opt = ThreadReply(
+            id = "opt-${UUID.randomUUID()}",
+            author = currentUserAuthor,
+            content = content,
+            timestamp = System.currentTimeMillis(),
+            likes = 0,
+            shares = 0,
+            replies = 0,
+            isLiked = false,
+            hashtags = emptyList(),
+            mediaUrls = emptyList(),
+            rootNoteId = rootId,
+            replyToId = parentId,
+            threadLevel = if (parentId == null || parentId == rootId) 0 else 1,
+            relayUrls = emptyList(),
+            kind = 1111
+        )
+        _optimisticReplies.value = _optimisticReplies.value + opt
+        updateRepliesState(_lastRepoReplies)
     }
 
     /**
@@ -191,7 +250,7 @@ class ThreadRepliesViewModel : ViewModel() {
     fun setSortOrder(sortOrder: ReplySortOrder) {
         if (_uiState.value.sortOrder != sortOrder) {
             _uiState.value = _uiState.value.copy(sortOrder = sortOrder)
-            updateRepliesState(_uiState.value.replies)
+            updateRepliesState(_lastRepoReplies)
         }
     }
 
@@ -248,6 +307,8 @@ class ThreadRepliesViewModel : ViewModel() {
      */
     fun clearReplies() {
         repository.clearAllReplies()
+        _optimisticReplies.value = emptyList()
+        _lastRepoReplies = emptyList()
         _uiState.value = ThreadRepliesUiState()
     }
 
@@ -256,7 +317,9 @@ class ThreadRepliesViewModel : ViewModel() {
      */
     fun clearRepliesForNote(noteId: String) {
         repository.clearRepliesForNote(noteId)
+        _optimisticReplies.value = _optimisticReplies.value.filter { it.rootNoteId != noteId }
         if (_uiState.value.note?.id == noteId) {
+            _lastRepoReplies = emptyList()
             _uiState.value = _uiState.value.copy(
                 replies = emptyList(),
                 threadedReplies = emptyList(),

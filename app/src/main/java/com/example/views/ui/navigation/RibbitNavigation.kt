@@ -49,6 +49,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.views.data.Author
+import com.example.views.data.DefaultRelayCategories
 import com.example.views.repository.NotesRepository
 import com.example.views.repository.NotificationsRepository
 import com.example.views.repository.ProfileMetadataCache
@@ -798,6 +799,11 @@ fun RibbitNavigation(
                             userDisplayName = authState.userProfile?.displayName ?: authState.userProfile?.name,
                             userAvatarUrl = authState.userProfile?.picture,
                             accountNpub = currentAccount?.npub,
+                            currentUserAuthor = remember(currentAccount) {
+                                currentAccount?.toHexKey()?.let { hex ->
+                                    ProfileMetadataCache.getInstance().resolveAuthor(hex)
+                                }
+                            },
                             onHeaderProfileClick = {
                                 authState.userProfile?.pubkey?.let { pubkey ->
                                     navController.navigateToProfile(pubkey)
@@ -1269,9 +1275,18 @@ fun RibbitNavigation(
                 }
 
                 composable("compose") {
+                    val composeContext = LocalContext.current
+                    val composeStorageManager = remember(composeContext) { RelayStorageManager(composeContext) }
+                    val currentAccountForCompose by accountStateViewModel.currentAccount.collectAsState()
+                    val relayCategoriesForCompose = remember(currentAccountForCompose) {
+                        currentAccountForCompose?.toHexKey()?.let { pubkey ->
+                            composeStorageManager.loadCategories(pubkey)
+                        } ?: DefaultRelayCategories.getAllDefaultCategories()
+                    }
                     ComposeNoteScreen(
                         onBack = { navController.popBackStack() },
-                        accountStateViewModel = accountStateViewModel
+                        accountStateViewModel = accountStateViewModel,
+                        relayCategories = relayCategoriesForCompose
                     )
                 }
 

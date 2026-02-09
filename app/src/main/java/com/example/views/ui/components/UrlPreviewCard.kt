@@ -17,14 +17,130 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.views.data.UrlPreviewInfo
 
 /** Size for inline thumbnail in note cards (top-right). */
 val URL_PREVIEW_THUMBNAIL_DP = 76.dp
+
+/** Smaller thumbnail when used inside Kind1LinkEmbedBlock. */
+private val KIND1_EMBED_THUMBNAIL_DP = 64.dp
+
+/**
+ * Small kind-1 link embed at top of note: headline, root domain, optional description, link with icon, thumbnail.
+ * Transparent background; in thread view shows outline only for separation.
+ *
+ * @param expandDescriptionInThread When true (thread view), show more description lines.
+ * @param inThreadView When true, draw outline only (no background); when false, transparent and borderless.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Kind1LinkEmbedBlock(
+    previewInfo: UrlPreviewInfo,
+    expandDescriptionInThread: Boolean = false,
+    inThreadView: Boolean = false,
+    onUrlClick: (String) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val uriHandler = LocalUriHandler.current
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {
+                    onUrlClick(previewInfo.url)
+                    uriHandler.openUri(previewInfo.url)
+                }
+            ),
+        color = Color.Transparent,
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = if (inThreadView) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header: headline, root domain (no counts)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (previewInfo.title.isNotEmpty()) {
+                        Text(
+                            text = previewInfo.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        text = previewInfo.rootDomain,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (previewInfo.imageUrl.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(KIND1_EMBED_THUMBNAIL_DP)
+                            .clip(RoundedCornerShape(8.dp))
+                    ) {
+                        AsyncImage(
+                            model = previewInfo.imageUrlFullPath,
+                            contentDescription = previewInfo.title.ifEmpty { "Link preview" },
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+            }
+
+            // Body: description (1-2 lines in feed, more in thread) + link line
+            if (previewInfo.description.isNotEmpty() || previewInfo.url.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                if (previewInfo.description.isNotEmpty()) {
+                    Text(
+                        text = previewInfo.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (expandDescriptionInThread) 6 else 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = previewInfo.rootDomain,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * Image-only URL preview thumbnail for note cards: square, rounded, clickable.

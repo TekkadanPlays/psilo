@@ -6,6 +6,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
+/** Note body text: slightly smaller/tighter and taller line height for a less wide, more readable block. */
+val NoteBodyTextStyle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 15.sp,
+    lineHeight = 22.sp,
+    letterSpacing = (-0.2).sp
+)
+
 // Set of Material typography styles to start with
 val Typography = Typography(
     bodyLarge = TextStyle(

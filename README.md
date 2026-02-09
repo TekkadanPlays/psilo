@@ -24,13 +24,13 @@ Output: `app/build/outputs/apk/release/app-release.apk`
 adb install app/build/outputs/apk/release/app-release.apk
 ```
 
-## Obtanium
+## Obtainium
 
-You can install or update Ribbit via [Obtanium](https://obtanium.com/) using the app's update manifest:
+You can install or update Ribbit via [Obtainium](https://obtainium.imranr.dev/) using the app's update manifest:
 
 - **Raw URL:** `https://raw.githubusercontent.com/TekkadanPlays/ribbit-android/main/obtanium.json`
 
-Add this URL in Obtanium to get release updates and download the APK from GitHub Releases.
+Add this URL in Obtainium to get release updates and download the APK from GitHub Releases.
 
 ## License
 
