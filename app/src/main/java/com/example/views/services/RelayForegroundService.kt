@@ -55,6 +55,8 @@ class RelayForegroundService : Service() {
         }
         // Ensure relay connection is active when the service starts
         RelayConnectionStateMachine.getInstance().requestReconnectOnResume()
+        // Start keepalive health check to detect stale WebSocket connections while backgrounded
+        RelayConnectionStateMachine.getInstance().startKeepalive()
 
         // Observe new note counts and update the notification
         serviceScope.launch {

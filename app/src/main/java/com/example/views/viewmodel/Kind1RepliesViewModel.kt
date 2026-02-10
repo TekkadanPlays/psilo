@@ -69,11 +69,13 @@ class Kind1RepliesViewModel : ViewModel() {
     private fun observeRepliesFromRepository() {
         viewModelScope.launch {
             repository.replies.collect { repliesMap ->
-                val currentNote = _uiState.value.note
-                if (currentNote != null) {
-                    val replies = repliesMap[currentNote.id] ?: emptyList()
-                    updateRepliesState(replies)
-                }
+                val currentNote = _uiState.value.note ?: return@collect
+                // Only update if the emission contains data for the current thread;
+                // skip spurious emissions from other threads' subscriptions to avoid
+                // flashing empty state or stale replies.
+                if (currentNote.id !in repliesMap) return@collect
+                val replies = repliesMap[currentNote.id] ?: emptyList()
+                updateRepliesState(replies)
             }
         }
 
@@ -96,10 +98,20 @@ class Kind1RepliesViewModel : ViewModel() {
      * Load Kind 1 replies for a specific note
      */
     fun loadRepliesForNote(note: Note, relayUrls: List<String>) {
+        val previousNoteId = _uiState.value.note?.id
         Log.d(TAG, "Loading Kind 1 replies for note ${note.id.take(8)}... from ${relayUrls.size} relays")
+
+        // Clear previous thread's state to prevent stale replies from showing
+        if (previousNoteId != null && previousNoteId != note.id) {
+            repository.clearRepliesForNote(previousNoteId)
+            Log.d(TAG, "Cleared previous thread ${previousNoteId.take(8)} before loading new one")
+        }
 
         _uiState.value = _uiState.value.copy(
             note = note,
+            replies = emptyList(),
+            threadedReplies = emptyList(),
+            totalReplyCount = 0,
             isLoading = true,
             error = null
         )

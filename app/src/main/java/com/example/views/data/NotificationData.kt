@@ -8,7 +8,6 @@ data class NotificationData(
     val id: String,
     val type: NotificationType,
     val text: String,
-    val timeAgo: String,
     /** The notification event as a note (e.g. reply content, reaction event). */
     val note: Note? = null,
     val author: Author? = null,
@@ -27,7 +26,11 @@ data class NotificationData(
     /** For consolidated notifications: pubkeys of actors (likes/zaps/reposts). */
     val actorPubkeys: List<String> = emptyList(),
     /** Sort key: latest repost time or notification time. */
-    val sortTimestamp: Long = 0L
+    val sortTimestamp: Long = 0L,
+    /** Total zap amount in sats (for ZAP type, parsed from bolt11 invoice). */
+    val zapAmountSats: Long = 0L,
+    /** NIP-25 reaction emoji for LIKE type (e.g. "❤️", "🔥", "👍", or "+" for default like). */
+    val reactionEmoji: String? = null
 )
 
 enum class NotificationType {

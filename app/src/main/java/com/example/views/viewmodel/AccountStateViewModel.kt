@@ -713,6 +713,103 @@ class AccountStateViewModel(application: Application) : AndroidViewModel(applica
         return null
     }
 
+    // ── NIP-22: Anchored Events ──────────────────────────────────────────
+
+    /**
+     * Publish a Kind 1011 scoped moderation event: mark a note as off-topic within a hashtag anchor.
+     * Signs with Amber and sends to outbox relays.
+     */
+    fun publishOffTopicModeration(anchor: String, noteId: String, reason: String = "off-topic"): String? {
+        val account = _currentAccount.value ?: return "Sign in to moderate"
+        val amber = amberSignerManager.state.value
+        val signer = (amber as? AmberState.LoggedIn)?.signer ?: return "Amber signer not available"
+        val accountHex = account.toHexKey() ?: return "Invalid account key"
+        val relaySet = relayStorageManager.loadOutboxRelays(accountHex)
+            .mapNotNull { RelayUrlNormalizer.normalizeOrNull(it.url) }
+            .toSet()
+        if (relaySet.isEmpty()) return "No outbox relays configured"
+        viewModelScope.launch {
+            try {
+                val template = TopicsPublishService.buildOffTopicModerationTemplate(anchor, noteId, reason)
+                val signed = signer.sign(template)
+                if (signed.sig.isBlank()) {
+                    _toastMessage.value = "Moderation signing failed"
+                    return@launch
+                }
+                RelayConnectionStateMachine.getInstance().nostrClient.send(signed, relaySet)
+                Log.d("AccountStateViewModel", "Kind-1011 off-topic published: ${signed.id.take(8)} anchor=$anchor")
+                _toastMessage.value = "Marked as off-topic"
+            } catch (e: Exception) {
+                Log.e("AccountStateViewModel", "publishOffTopicModeration failed: ${e.message}", e)
+                _toastMessage.value = "Moderation failed: ${e.message?.take(60)}"
+            }
+        }
+        return null
+    }
+
+    /**
+     * Publish a Kind 1011 scoped moderation event: exclude a user from a hashtag anchor.
+     */
+    fun publishUserExclusion(anchor: String, pubkey: String, reason: String = "removed from topic"): String? {
+        val account = _currentAccount.value ?: return "Sign in to moderate"
+        val amber = amberSignerManager.state.value
+        val signer = (amber as? AmberState.LoggedIn)?.signer ?: return "Amber signer not available"
+        val accountHex = account.toHexKey() ?: return "Invalid account key"
+        val relaySet = relayStorageManager.loadOutboxRelays(accountHex)
+            .mapNotNull { RelayUrlNormalizer.normalizeOrNull(it.url) }
+            .toSet()
+        if (relaySet.isEmpty()) return "No outbox relays configured"
+        viewModelScope.launch {
+            try {
+                val template = TopicsPublishService.buildUserExclusionModerationTemplate(anchor, pubkey, reason)
+                val signed = signer.sign(template)
+                if (signed.sig.isBlank()) {
+                    _toastMessage.value = "Moderation signing failed"
+                    return@launch
+                }
+                RelayConnectionStateMachine.getInstance().nostrClient.send(signed, relaySet)
+                Log.d("AccountStateViewModel", "Kind-1011 user-exclusion published: ${signed.id.take(8)} anchor=$anchor")
+                _toastMessage.value = "User excluded from topic"
+            } catch (e: Exception) {
+                Log.e("AccountStateViewModel", "publishUserExclusion failed: ${e.message}", e)
+                _toastMessage.value = "Moderation failed: ${e.message?.take(60)}"
+            }
+        }
+        return null
+    }
+
+    /**
+     * Publish a Kind 30073 anchor subscription event (replaces previous).
+     * [anchors] = list of NIP-73 identifiers; [moderators] = map of anchor -> list of moderator pubkeys.
+     */
+    fun publishAnchorSubscriptions(anchors: List<String>, moderators: Map<String, List<String>> = emptyMap()): String? {
+        val account = _currentAccount.value ?: return "Sign in to publish"
+        val amber = amberSignerManager.state.value
+        val signer = (amber as? AmberState.LoggedIn)?.signer ?: return "Amber signer not available"
+        val accountHex = account.toHexKey() ?: return "Invalid account key"
+        val relaySet = relayStorageManager.loadOutboxRelays(accountHex)
+            .mapNotNull { RelayUrlNormalizer.normalizeOrNull(it.url) }
+            .toSet()
+        if (relaySet.isEmpty()) return "No outbox relays configured"
+        viewModelScope.launch {
+            try {
+                val template = TopicsPublishService.buildAnchorSubscriptionTemplate(anchors, moderators)
+                val signed = signer.sign(template)
+                if (signed.sig.isBlank()) {
+                    _toastMessage.value = "Subscription signing failed"
+                    return@launch
+                }
+                RelayConnectionStateMachine.getInstance().nostrClient.send(signed, relaySet)
+                Log.d("AccountStateViewModel", "Kind-30073 published: ${signed.id.take(8)} anchors=${anchors.size}")
+                _toastMessage.value = "Anchor subscriptions updated"
+            } catch (e: Exception) {
+                Log.e("AccountStateViewModel", "publishAnchorSubscriptions failed: ${e.message}", e)
+                _toastMessage.value = "Subscription failed: ${e.message?.take(60)}"
+            }
+        }
+        return null
+    }
+
     /**
      * Follow a user (publish updated kind-3 contact list via Amber).
      * Returns null on success, or an error message.
@@ -909,6 +1006,122 @@ class AccountStateViewModel(application: Application) : AndroidViewModel(applica
      */
     fun clearError() {
         _authState.value = _authState.value.copy(error = null)
+    }
+
+    // ── Anchor Subscription Management ──────────────────────────────────────
+
+    private val anchorSubscriptionRepo = com.example.views.repository.AnchorSubscriptionRepository.getInstance()
+
+    /**
+     * Get the current set of subscribed anchors
+     */
+    fun getSubscribedAnchors(): StateFlow<Set<String>> {
+        return anchorSubscriptionRepo.subscribedAnchors
+    }
+
+    /**
+     * Check if user is subscribed to an anchor
+     */
+    fun isSubscribedToAnchor(anchor: String): Boolean {
+        return anchorSubscriptionRepo.isSubscribed(anchor)
+    }
+
+    /**
+     * Subscribe to an anchor (adds to subscription list and publishes update)
+     */
+    fun subscribeToAnchor(anchor: String): String? {
+        val currentSubs = anchorSubscriptionRepo.getAllSubscriptions().toMutableSet()
+        if (anchor in currentSubs) {
+            return "Already subscribed to $anchor"
+        }
+        // Optimistic local update so UI reflects immediately
+        anchorSubscriptionRepo.addLocalAnchor(anchor)
+        currentSubs.add(anchor)
+        return publishAnchorSubscriptions(currentSubs.toList())
+    }
+
+    /**
+     * Unsubscribe from an anchor (removes from subscription list and publishes update)
+     */
+    fun unsubscribeFromAnchor(anchor: String): String? {
+        val currentSubs = anchorSubscriptionRepo.getAllSubscriptions().toMutableSet()
+        if (anchor !in currentSubs) {
+            return "Not subscribed to $anchor"
+        }
+        // Optimistic local update so UI reflects immediately
+        anchorSubscriptionRepo.removeLocalAnchor(anchor)
+        currentSubs.remove(anchor)
+        return publishAnchorSubscriptions(currentSubs.toList())
+    }
+
+    /**
+     * Request subscription events for the current user
+     */
+    fun requestMySubscriptions() {
+        val account = _currentAccount.value ?: return
+        val accountHex = account.toHexKey() ?: return
+        val relays = relayStorageManager.loadInboxRelays(accountHex)
+            .mapNotNull { RelayUrlNormalizer.normalizeOrNull(it.url) }
+            .map { it.url }
+            .toSet()
+        if (relays.isNotEmpty()) {
+            anchorSubscriptionRepo.setCurrentUser(accountHex)
+            anchorSubscriptionRepo.requestSubscriptionsFor(accountHex, relays)
+        }
+    }
+    
+    /**
+     * Publish a kind:1 reply to a kind:11 topic with I tags and e tags
+     * This creates a mesh network reply that spreads across relays while maintaining topic context
+     */
+    fun publishTopicReply(
+        content: String,
+        topicId: String,
+        topicAuthorPubkey: String,
+        hashtags: List<String>
+    ) {
+        val account = _currentAccount.value ?: return
+        val amber = amberSignerManager.state.value
+        val signer = (amber as? AmberState.LoggedIn)?.signer ?: return
+        val accountHex = account.toHexKey() ?: return
+        
+        val relaySet = relayStorageManager.loadOutboxRelays(accountHex)
+            .mapNotNull { RelayUrlNormalizer.normalizeOrNull(it.url) }
+            .toSet()
+        
+        if (relaySet.isEmpty()) {
+            _toastMessage.value = "No outbox relays configured"
+            return
+        }
+        
+        viewModelScope.launch {
+            try {
+                // Build kind:1 note with I tags (anchors) and e tag (root)
+                val template = Event.build(1, content) {
+                    // Add I tags for each hashtag anchor
+                    hashtags.forEach { hashtag ->
+                        add(arrayOf("I", "#$hashtag"))
+                    }
+                    // Add e tag pointing to topic as root (NIP-10)
+                    add(arrayOf("e", topicId, "", "root"))
+                    // Add p tag for topic author
+                    add(arrayOf("p", topicAuthorPubkey))
+                }
+                
+                val signed = signer.sign(template)
+                if (signed.sig.isBlank()) {
+                    _toastMessage.value = "Reply signing failed"
+                    return@launch
+                }
+                
+                RelayConnectionStateMachine.getInstance().nostrClient.send(signed, relaySet)
+                Log.d("AccountStateViewModel", "Kind-1 topic reply published: ${signed.id.take(8)}")
+                _toastMessage.value = "Reply published"
+            } catch (e: Exception) {
+                Log.e("AccountStateViewModel", "publishTopicReply failed: ${e.message}", e)
+                _toastMessage.value = "Reply failed: ${e.message?.take(60)}"
+            }
+        }
     }
 }
 

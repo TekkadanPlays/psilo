@@ -150,17 +150,47 @@ fun NoteCard(
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 2.dp)
             .clickable { onNoteClick(note) },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RectangleShape
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Repost header (kind-6) — compact inline row
+            if (note.repostedBy != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 52.dp, end = 16.dp, top = 6.dp, bottom = 0.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Repeat,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    ProfilePicture(
+                        author = note.repostedBy!!,
+                        size = 16.dp,
+                        onClick = { onProfileClick(note.repostedBy!!.id) }
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "${note.repostedBy!!.displayName.ifBlank { note.repostedBy!!.username }} reposted",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
             // Author info
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = if (note.repostedBy != null) 4.dp else 12.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Avatar with shared element support
@@ -258,7 +288,8 @@ fun NoteCard(
             if (showActionRow) {
                 val replyCountVal = (overrideReplyCount ?: note.comments).coerceAtLeast(0)
                 val zapCount = (overrideZapCount ?: note.zapCount).coerceAtLeast(0)
-                val reactionCount = (overrideReactions ?: note.reactions).size.coerceAtLeast(0)
+                val reactionsList = overrideReactions ?: note.reactions
+                val reactionCount = reactionsList.size.coerceAtLeast(0)
                 val formattedTime = remember(note.timestamp) { formatTimestamp(note.timestamp) }
                 // Colors for count numbers
                 val ribbitGreen = Color(0xFF8FBC8F)
@@ -282,11 +313,18 @@ fun NoteCard(
                         }
                         Text(text = formattedTime, style = countStyle, color = mutedText)
                     }
-                    // Right side: reactions • zaps
+                    // Right side: reaction emojis • zaps
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (reactionCount > 0) {
-                            Text(text = "$reactionCount", style = countStyle, color = pastelRed)
-                            Text(text = " reaction${if (reactionCount == 1) "" else "s"}", style = countStyle, color = mutedText)
+                            // Show actual emoji characters (up to 5 unique), then count
+                            val uniqueEmojis = reactionsList.distinct().take(5)
+                            Text(
+                                text = uniqueEmojis.joinToString(""),
+                                style = countStyle.copy(fontSize = 13.sp)
+                            )
+                            if (reactionCount > 1) {
+                                Text(text = " $reactionCount", style = countStyle, color = pastelRed)
+                            }
                         }
                         if (reactionCount > 0 && zapCount > 0) {
                             Text(text = " • ", style = countStyle, color = mutedText)
@@ -321,7 +359,19 @@ fun NoteCard(
             val consumedUrls = remember(firstPreview) {
                 if (firstPreview != null) setOf(firstPreview.url) else emptySet()
             }
-            val contentBlocks = remember(note.content, note.mediaUrls, note.urlPreviews, consumedUrls) {
+            // Track mentioned pubkeys so content rebuilds when their profiles load (npub→@displayName)
+            val mentionedPubkeys = remember(note.content) {
+                com.example.views.utils.extractPubkeysFromContent(note.content)
+            }
+            var mentionProfileVersion by remember { mutableStateOf(0) }
+            if (mentionedPubkeys.isNotEmpty()) {
+                LaunchedEffect(mentionedPubkeys) {
+                    profileCache.profileUpdated
+                        .filter { it in mentionedPubkeys.toSet() }
+                        .collect { mentionProfileVersion++ }
+                }
+            }
+            val contentBlocks = remember(note.content, note.mediaUrls, note.urlPreviews, consumedUrls, mentionProfileVersion) {
                 buildNoteContentWithInlinePreviews(
                     note.content,
                     note.mediaUrls.toSet(),

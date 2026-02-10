@@ -59,6 +59,8 @@ import com.example.views.ui.components.BottomNavDestinations
 import com.example.views.ui.components.ModernSearchBar
 import com.example.views.ui.components.GlobalSidebar
 import com.example.views.ui.components.NoteCard
+import com.example.views.ui.components.LiveActivityCard
+import com.example.views.ui.components.LiveActivityRow
 import com.example.views.ui.components.LoadingAnimation
 import com.example.views.ui.components.NoteCard
 import com.example.views.viewmodel.DashboardViewModel
@@ -76,7 +78,11 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Comment
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.views.ui.icons.ChatBubbleOutline
+import com.example.views.repository.ScopedModerationRepository
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -119,6 +125,22 @@ fun TopicsScreen(
     val currentAccount by accountStateViewModel.currentAccount.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    // NIP-22: Observe scoped moderation state for off-topic badges
+    val moderationRepo = remember { ScopedModerationRepository.getInstance() }
+    val offTopicCounts by moderationRepo.offTopicCounts.collectAsState()
+
+    // NIP-22: Observe anchor subscriptions (kind:30073 favorites)
+    val subscribedAnchors by accountStateViewModel.getSubscribedAnchors().collectAsState()
+    var showFavoritesOnly by remember { mutableStateOf(false) }
+
+    // NIP-53: Live activities for chips row
+    val liveActivities by viewModel.liveActivities.collectAsState()
+
+    // Real per-relay connection counts from state machine for sidebar "Connected X/Y"
+    val perRelayState by com.example.views.relay.RelayConnectionStateMachine.getInstance().perRelayState.collectAsState()
+    val connectedRelayCount = perRelayState.values.count { it == com.example.views.relay.RelayEndpointStatus.Connected }
+    val subscribedRelayCount = perRelayState.size
 
     // Relay management
     val storageManager = remember { RelayStorageManager(context) }
@@ -245,6 +267,9 @@ fun TopicsScreen(
     var showZapConfigDialog by remember { mutableStateOf(false) }
     var showWalletConnectDialog by remember { mutableStateOf(false) }
 
+    // Relay info dialog state
+    var relayUrlToShowInfo by remember { mutableStateOf<String?>(null) }
+
     // Close zap menus when feed scroll starts (not during scroll)
     var wasScrolling by remember { mutableStateOf(false) }
     LaunchedEffect(listState.isScrollInProgress) {
@@ -303,6 +328,8 @@ fun TopicsScreen(
         relayCategories = relayCategories,
         feedState = topicsFeedState,
         selectedDisplayName = feedStateViewModel.getTopicsDisplayName(),
+        connectedRelayCount = connectedRelayCount,
+        subscribedRelayCount = subscribedRelayCount,
         onQrClick = onQrClick,
         onItemClick = { itemId ->
             when {
@@ -438,9 +465,20 @@ fun TopicsScreen(
                         currentFeedView = currentFeedView,
                         onFeedViewChange = { newFeedView -> currentFeedView = newFeedView },
                         isTopicsFollowingFilter = topicsFeedState.topicsIsFollowing,
-                        onTopicsFollowingFilterChange = { feedStateViewModel.setTopicsFollowingFilter(it) },
+                        onTopicsFollowingFilterChange = {
+                            scope.launch { listState.scrollToItem(0) }
+                            feedStateViewModel.setTopicsFollowingFilter(it)
+                        },
                         topicsSortOrder = topicsFeedState.topicsSortOrder,
-                        onTopicsSortOrderChange = { feedStateViewModel.setTopicsSortOrder(it) }
+                        onTopicsSortOrderChange = {
+                            scope.launch { listState.scrollToItem(0) }
+                            feedStateViewModel.setTopicsSortOrder(it)
+                        },
+                        isTopicsFavoritesFilter = showFavoritesOnly,
+                        onTopicsFavoritesFilterChange = {
+                            scope.launch { listState.scrollToItem(0) }
+                            showFavoritesOnly = it
+                        }
                     )
                 }
             },
@@ -642,7 +680,7 @@ fun TopicsScreen(
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(0.dp)
+                                contentPadding = PaddingValues(top = 4.dp)
                             ) {
                                 // "x new topics" counter (tap to refresh) — connection status lives in sidebar
                                 if (topicsUiState.newTopicsCount > 0) {
@@ -673,15 +711,32 @@ fun TopicsScreen(
                                         }
                                     }
                                 }
+
+                                // Filter hashtags by favorites if enabled
+                                val displayedHashtags = if (showFavoritesOnly) {
+                                    topicsUiState.hashtagStats.filter { stats ->
+                                        "#${stats.hashtag.lowercase()}" in subscribedAnchors
+                                    }
+                                } else {
+                                    topicsUiState.hashtagStats
+                                }
+
                                 items(
-                                    items = topicsUiState.hashtagStats,
+                                    items = displayedHashtags,
                                     key = { it.hashtag }
                                 ) { stats ->
+                                    val anchor = "#${stats.hashtag.lowercase()}"
+                                    val isFavorited = anchor in subscribedAnchors
                                     HashtagCard(
                                         stats = stats,
-                                        isFavorited = false, // TODO: Track favorites
+                                        isFavorited = isFavorited,
+                                        modifier = Modifier.padding(vertical = 2.dp),
                                         onToggleFavorite = {
-                                            // TODO: Toggle favorite
+                                            if (isFavorited) {
+                                                accountStateViewModel.unsubscribeFromAnchor(anchor)
+                                            } else {
+                                                accountStateViewModel.subscribeToAnchor(anchor)
+                                            }
                                         },
                                         onMenuClick = {
                                             // TODO: Show menu
@@ -753,25 +808,50 @@ fun TopicsScreen(
                                 LazyColumn(
                                     state = listState,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(0.dp)
+                                    contentPadding = PaddingValues(top = 4.dp)
                                 ) {
                                     items(
                                         items = topicsUiState.topicsForSelectedHashtag,
                                         key = { it.id }
                                     ) { topic ->
-                                        Kind11TopicCard(
-                                            topic = topic,
-                                            isFavorited = false,
-                                            onToggleFavorite = {
-                                                // TODO: Implement favorite
+                                        val note = topic.toNote()
+                                        // NIP-22: compute anchor from selected hashtag for moderation
+                                        val anchor = "#${selectedHashtag?.lowercase() ?: ""}"
+                                        val moderationMenuItems = listOf<Pair<String, () -> Unit>>(
+                                            "Flag Off-Topic" to {
+                                                accountStateViewModel.publishOffTopicModeration(anchor, topic.id)
+                                                Unit
                                             },
-                                            onMenuClick = {
-                                                // TODO: Show menu
-                                            },
-                                            onClick = {
-                                                appViewModel.updateThreadSourceScreen("topics")
-                                                onThreadClick(topic.toNote(), topicsUiState.connectedRelays)
+                                            "Exclude User" to {
+                                                accountStateViewModel.publishUserExclusion(anchor, topic.author.id)
+                                                Unit
                                             }
+                                        )
+                                        NoteCard(
+                                            note = note,
+                                            onNoteClick = {
+                                                onThreadClick(note, topic.relayUrls.takeIf { it.isNotEmpty() })
+                                            },
+                                            onComment = { onThreadClick(note, topic.relayUrls.takeIf { it.isNotEmpty() }) },
+                                            onReact = { reactedNote, emoji ->
+                                                accountStateViewModel.sendReaction(reactedNote, emoji)
+                                            },
+                                            onProfileClick = onProfileClick,
+                                            onImageTap = { n, urls, idx ->
+                                                onThreadClick(note, topic.relayUrls.takeIf { it.isNotEmpty() })
+                                            },
+                                            onZap = { noteId, amount ->
+                                                accountStateViewModel.sendZap(note, amount, com.example.views.repository.ZapType.PUBLIC, "")
+                                            },
+                                            onCustomZapSend = { n, amount, zapType, msg ->
+                                                accountStateViewModel.sendZap(n, amount, zapType, msg)
+                                            },
+                                            shouldCloseZapMenus = shouldCloseZapMenus,
+                                            onZapSettings = { showZapConfigDialog = true },
+                                            onRelayClick = { relayUrlToShowInfo = it },
+                                            accountNpub = currentAccount?.npub,
+                                            extraMoreMenuItems = moderationMenuItems,
+                                            modifier = Modifier.fillMaxWidth()
                                         )
                                     }
                                 }
@@ -814,12 +894,20 @@ fun TopicsScreen(
         )
     }
 
+    // Relay info dialog
+    relayUrlToShowInfo?.let { url ->
+        com.example.views.ui.components.RelayInfoDialog(
+            relayUrl = url,
+            onDismiss = { relayUrlToShowInfo = null }
+        )
+    }
+
 }
 
 
 
 /**
- * Hashtag card displaying statistics - full width like feed cards
+ * Hashtag card displaying statistics - true edge-to-edge like NoteCard feed cards
  */
 @Composable
 private fun HashtagCard(
@@ -830,116 +918,102 @@ private fun HashtagCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        onClick = onClick,
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 0.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        shape = RectangleShape, // Edge-to-edge
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 0.dp
-        )
+            .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
+        shape = RectangleShape
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Hashtag info
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Tag icon
                 Icon(
                     imageVector = Icons.Default.Tag,
                     contentDescription = null,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
+                Spacer(Modifier.width(8.dp))
 
-                // Hashtag name and stats
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                // Left: hashtag name + count + timestamp
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "#${stats.hashtag}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "${stats.topicCount} ${if (stats.topicCount == 1) "topic" else "topics"}",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "${stats.topicCount}",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (stats.totalReplies > 0) {
-                            Text(
-                                text = "•",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = "${stats.totalReplies} ${if (stats.totalReplies == 1) "reply" else "replies"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Spacer(Modifier.width(2.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = formatHashtagTimestamp(stats.latestActivity),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
                     }
+                }
 
-                    Text(
-                        text = "Latest: ${formatHashtagTimestamp(stats.latestActivity)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
+                // Middle: relay orbs (expand to fill available space)
+                if (stats.relayUrls.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    com.example.views.ui.components.RelayOrbs(
+                        relayUrls = stats.relayUrls
                     )
                 }
-            }
 
-            // Right: Actions
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Star button
+                // Right: star + menu aligned to end
+                Spacer(Modifier.width(4.dp))
                 IconButton(
                     onClick = onToggleFavorite,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = if (isFavorited) Icons.Default.Star else Icons.Default.StarBorder,
                         contentDescription = if (isFavorited) "Unfavorite" else "Favorite",
-                        tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isFavorited) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-
-                // Menu button
                 IconButton(
                     onClick = onMenuClick,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
-        }
 
-        // Divider
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-            thickness = 1.dp
-        )
+            // Divider
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                thickness = 0.5.dp
+            )
+        }
     }
 }
 
@@ -960,7 +1034,8 @@ private fun formatHashtagTimestamp(timestamp: Long): String {
 }
 
 /**
- * Kind 11 Topic card displaying topic info - custom design with karma and styled body
+ * Kind 11 Topic card displaying topic info - custom design with karma and styled body.
+ * Includes NIP-22 scoped moderation: off-topic badge and flag action in overflow menu.
  */
 @Composable
 private fun Kind11TopicCard(
@@ -969,8 +1044,13 @@ private fun Kind11TopicCard(
     onToggleFavorite: () -> Unit,
     onMenuClick: () -> Unit,
     onClick: () -> Unit,
+    offTopicCount: Int = 0,
+    onFlagOffTopic: (() -> Unit)? = null,
+    onExcludeUser: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Card(
         onClick = onClick,
         modifier = modifier
@@ -988,7 +1068,7 @@ private fun Kind11TopicCard(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // Header: Profile pic + Author + Time + Relay orbs
+            // Header: Profile pic + Author + Time + Relay orbs + overflow menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -1029,6 +1109,19 @@ private fun Kind11TopicCard(
                                 color = MaterialTheme.colorScheme.outline
                             )
                         }
+                        // NIP-22: off-topic flag badge
+                        if (offTopicCount > 0) {
+                            Text(
+                                text = "\u2022",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                text = "$offTopicCount flag${if (offTopicCount != 1) "s" else ""}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
                 // Relay orbs
@@ -1038,6 +1131,56 @@ private fun Kind11TopicCard(
                         relayUrls = displayRelayUrls,
                         onRelayClick = { /* relay info */ }
                     )
+                }
+                // NIP-22: overflow menu with moderation actions
+                if (onFlagOffTopic != null || onExcludeUser != null) {
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            if (onFlagOffTopic != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Flag as off-topic") },
+                                    onClick = {
+                                        showMenu = false
+                                        onFlagOffTopic()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Flag,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                )
+                            }
+                            if (onExcludeUser != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Exclude user from topic") },
+                                    onClick = {
+                                        showMenu = false
+                                        onExcludeUser()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.PersonOff,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1094,28 +1237,6 @@ private fun Kind11TopicCard(
     }
 }
 
-/**
- * Convert TopicNote to Note for navigation compatibility (thread from Topics feed).
- * Sets topicTitle and kind = 11 so the thread view shows SUBJECT/TOPIC row.
- */
-private fun com.example.views.repository.TopicNote.toNote(): Note {
-    return Note(
-        id = id,
-        author = author,
-        content = content,
-        timestamp = timestamp,
-        likes = 0,
-        shares = 0,
-        comments = replyCount,
-        isLiked = false,
-        hashtags = hashtags,
-        mediaUrls = emptyList(),
-        kind = 11,
-        topicTitle = title.ifEmpty { null },
-        relayUrl = relayUrl.ifEmpty { null },
-        relayUrls = relayUrls.ifEmpty { listOfNotNull(relayUrl).filter { it.isNotEmpty() } }
-    )
-}
 
 @Preview(showBackground = true)
 @Composable

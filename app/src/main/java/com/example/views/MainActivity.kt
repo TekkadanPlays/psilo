@@ -23,6 +23,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.views.repository.NotesRepository
 import com.example.views.repository.ProfileMetadataCache
 import com.example.views.repository.TopicsRepository
+import com.example.views.repository.ScopedModerationRepository
+import com.example.views.relay.NetworkConnectivityMonitor
 import com.example.views.relay.RelayConnectionStateMachine
 import com.example.views.services.RelayForegroundService
 import com.example.views.ui.navigation.RibbitNavigation
@@ -72,9 +74,10 @@ class MainActivity : ComponentActivity(), ComponentCallbacks2 {
     // Callback to handle login result
     private var onAmberLoginResult: ((Int, Intent?) -> Unit)? = null
     private var shouldRunRelayService = false
-    private lateinit var accountStateViewModel: AccountStateViewModel
     private var pendingStartAfterPermission = false
+    private var networkMonitor: NetworkConnectivityMonitor? = null
     private var isInForeground = false
+    private lateinit var accountStateViewModel: AccountStateViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -123,6 +126,18 @@ class MainActivity : ComponentActivity(), ComponentCallbacks2 {
 
         // Register kind-11 handler from app start so topics are collected before user opens Topics screen
         TopicsRepository.getInstance(applicationContext)
+
+        // Register kind-1011 handler for NIP-22 scoped moderation events; init persistence
+        ScopedModerationRepository.getInstance().init(applicationContext)
+        
+        // Initialize anchor subscription repository for kind:30073 events
+        com.example.views.repository.AnchorSubscriptionRepository.getInstance()
+
+        // Register kind-30311 handler for NIP-53 live activities from app start
+        com.example.views.repository.LiveActivityRepository.getInstance()
+
+        // Start network connectivity monitor to detect WiFi/cellular switches and trigger relay reconnection
+        networkMonitor = NetworkConnectivityMonitor(applicationContext).also { it.start() }
 
         // Re-apply relay subscription when app is resumed (e.g. after screen lock) so connection and notes resume
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
@@ -175,6 +190,8 @@ class MainActivity : ComponentActivity(), ComponentCallbacks2 {
         if (shouldRunRelayService) {
             maybeStartRelayForegroundService()
         }
+        // Start keepalive health check to detect stale WebSocket connections
+        RelayConnectionStateMachine.getInstance().startKeepalive()
     }
 
     override fun onPause() {
@@ -186,6 +203,8 @@ class MainActivity : ComponentActivity(), ComponentCallbacks2 {
         if (::accountStateViewModel.isInitialized) {
             accountStateViewModel.clearAmberActivityContext()
         }
+        networkMonitor?.stop()
+        RelayConnectionStateMachine.getInstance().stopKeepalive()
         super.onDestroy()
         unregisterComponentCallbacks(this)
     }

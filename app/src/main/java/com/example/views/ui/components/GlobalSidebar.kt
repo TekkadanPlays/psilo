@@ -32,6 +32,8 @@ fun GlobalSidebar(
     selectedDisplayName: String = "All Relays",
     relayState: RelayState = RelayState.Disconnected,
     connectionStatus: Map<String, RelayConnectionStatus> = emptyMap(),
+    connectedRelayCount: Int = 0,
+    subscribedRelayCount: Int = 0,
     onItemClick: (String) -> Unit,
     onToggleCategory: (String) -> Unit = {},
     onQrClick: () -> Unit = {},
@@ -50,6 +52,8 @@ fun GlobalSidebar(
                     selectedDisplayName = selectedDisplayName,
                     relayState = relayState,
                     connectionStatus = connectionStatus,
+                    connectedRelayCount = connectedRelayCount,
+                    subscribedRelayCount = subscribedRelayCount,
                     onItemClick = onItemClick,
                     onToggleCategory = onToggleCategory,
                     onQrClick = onQrClick,
@@ -74,6 +78,8 @@ private fun DrawerContent(
     selectedDisplayName: String,
     relayState: RelayState = RelayState.Disconnected,
     connectionStatus: Map<String, RelayConnectionStatus> = emptyMap(),
+    connectedRelayCount: Int = 0,
+    subscribedRelayCount: Int = 0,
     onItemClick: (String) -> Unit,
     onToggleCategory: (String) -> Unit,
     onQrClick: () -> Unit = {},
@@ -123,17 +129,9 @@ private fun DrawerContent(
             }
         }
 
-        // Connection status summary (peek-able)
-        val connectedCount = connectionStatus.values.count { it == RelayConnectionStatus.CONNECTED }
-        val totalRelayCount = relayCategories.flatMap { it.relays }.distinctBy { it.url }.size
-        val connectionText = when (relayState) {
-            is RelayState.Disconnected -> "Disconnected"
-            is RelayState.Connecting -> "Connecting…"
-            is RelayState.Connected -> "Connected"
-            is RelayState.Subscribed -> "Connected"
-            is RelayState.ConnectFailed -> "Connection failed"
-        }
+        // Connection status summary — uses real per-relay counts from RelayConnectionStateMachine
         val isConnecting = relayState is RelayState.Connecting
+        val isConnected = relayState is RelayState.Connected || relayState is RelayState.Subscribed
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -145,9 +143,9 @@ private fun DrawerContent(
                 modifier = Modifier
                     .size(8.dp)
                     .background(
-                        color = when (relayState) {
-                            is RelayState.Connected, is RelayState.Subscribed -> MaterialTheme.colorScheme.primary
-                            is RelayState.Connecting -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        color = when {
+                            isConnected && connectedRelayCount > 0 -> MaterialTheme.colorScheme.primary
+                            isConnecting -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                             else -> MaterialTheme.colorScheme.error
                         },
                         shape = androidx.compose.foundation.shape.CircleShape
@@ -161,7 +159,12 @@ private fun DrawerContent(
                 )
             }
             Text(
-                text = if (connectedCount > 0) "$connectionText · $connectedCount/$totalRelayCount relays" else connectionText,
+                text = when {
+                    connectedRelayCount > 0 -> "Connected $connectedRelayCount/$subscribedRelayCount"
+                    isConnecting -> "Connecting\u2026"
+                    relayState is RelayState.ConnectFailed -> "Connection failed"
+                    else -> "Disconnected"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -264,7 +267,8 @@ private fun RelayCategoriesSection(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
-        categories.forEach { category ->
+        // Only show subscribed categories in the sidebar
+        categories.filter { it.isSubscribed }.forEach { category ->
             val isExpanded = expandedCategories.contains(category.id)
 
             // Category header - click to load all relays, icon to expand/collapse

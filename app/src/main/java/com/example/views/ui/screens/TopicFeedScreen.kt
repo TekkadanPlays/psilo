@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Comment
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -24,11 +26,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.views.repository.TopicNote
+import com.example.views.repository.TopicRepliesRepository
 import com.example.views.viewmodel.TopicsViewModel
+import com.example.views.viewmodel.AccountStateViewModel
 import com.example.views.ui.components.LoadingAnimation
 import com.example.views.ui.components.ProfilePicture
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Topic Feed Screen - Displays Kind 11 topics for a specific hashtag
@@ -39,14 +45,25 @@ import kotlinx.coroutines.launch
 fun TopicFeedScreen(
     hashtag: String,
     onBackClick: () -> Unit = {},
-    onTopicClick: (TopicNote) -> Unit = {},
+    onTopicClick: (String) -> Unit = {}, // Takes topicId to navigate to TopicThreadScreen
     listState: LazyListState = rememberLazyListState(),
     topicsViewModel: TopicsViewModel = viewModel(),
+    accountStateViewModel: AccountStateViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by topicsViewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var isRefreshing by remember { mutableStateOf(false) }
+    
+    // Track subscription state for this hashtag anchor
+    val anchor = "#$hashtag"
+    val subscribedAnchors by accountStateViewModel.getSubscribedAnchors().collectAsState()
+    val isSubscribed = anchor in subscribedAnchors
+    
+    // Track kind:1 replies to topics
+    val topicRepliesRepo = remember { TopicRepliesRepository.getInstance() }
+    val repliesByTopicId by topicRepliesRepo.repliesByTopicId.collectAsState()
 
     val topAppBarState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
@@ -74,6 +91,29 @@ fun TopicFeedScreen(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Back",
                             tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            val error = if (isSubscribed) {
+                                accountStateViewModel.unsubscribeFromAnchor(anchor)
+                            } else {
+                                accountStateViewModel.subscribeToAnchor(anchor)
+                            }
+                            if (error != null) {
+                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                            } else {
+                                val message = if (isSubscribed) "Unsubscribed from #$hashtag" else "Subscribed to #$hashtag"
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isSubscribed) Icons.Default.BookmarkAdded else Icons.Default.BookmarkAdd,
+                            contentDescription = if (isSubscribed) "Unsubscribe" else "Subscribe",
+                            tint = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
@@ -143,14 +183,18 @@ fun TopicFeedScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)
                 ) {
                     items(
                         items = topics,
                         key = { it.id }
                     ) { topic ->
+                        // Get kind:1 reply count for this topic
+                        val kind1ReplyCount = repliesByTopicId[topic.id]?.size ?: 0
+                        val totalReplyCount = topic.replyCount + kind1ReplyCount
+                        
                         TopicCard(
-                            topic = topic,
+                            topic = topic.copy(replyCount = totalReplyCount),
                             isFavorited = false, // TODO: Track favorites
                             onToggleFavorite = {
                                 // TODO: Implement favorite
@@ -159,7 +203,7 @@ fun TopicFeedScreen(
                                 // TODO: Show menu
                             },
                             onClick = {
-                                onTopicClick(topic)
+                                onTopicClick(topic.id)
                             }
                         )
                     }

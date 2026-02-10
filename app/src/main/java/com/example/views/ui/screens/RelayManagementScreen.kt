@@ -944,73 +944,136 @@ private fun RelaySettingsItem(
     onOpenRelayLog: (String) -> Unit,
     onRemove: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpenRelayLog(relay.url) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Relay icon - use NIP-11 icon if available, otherwise router icon
-        if (relay.info?.icon != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(relay.info.icon)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "Relay icon",
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                showDeleteConfirm = true
+                false // Don't actually dismiss yet — wait for confirmation
+            } else {
+                false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Box(
                 modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Outlined.Router,
-                contentDescription = null,
-                tint = when (connectionStatus) {
-                    RelayConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.primary
-                    RelayConnectionStatus.CONNECTING -> MaterialTheme.colorScheme.secondary
-                    RelayConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
-                    RelayConnectionStatus.ERROR -> MaterialTheme.colorScheme.error
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.error),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.padding(end = 24.dp)
+                )
+            }
+        },
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true
+    ) {
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    ) { onOpenRelayLog(relay.url) }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Relay icon - use NIP-11 icon if available, otherwise router icon
+                if (relay.info?.icon != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(relay.info.icon)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Relay icon",
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Router,
+                        contentDescription = null,
+                        tint = when (connectionStatus) {
+                            RelayConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.primary
+                            RelayConnectionStatus.CONNECTING -> MaterialTheme.colorScheme.secondary
+                            RelayConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+                            RelayConnectionStatus.ERROR -> MaterialTheme.colorScheme.error
+                        }
+                    )
                 }
-            )
-        }
 
-        Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
-        // Relay info - just the title/URL
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = relay.displayName,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = relay.url,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+                // Relay info - just the title/URL
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = relay.displayName,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = relay.url,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
+    }
 
-        // Remove button
-        IconButton(
-            onClick = onRemove,
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Delete,
-                contentDescription = "Remove",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.error
-            )
-        }
+    // Confirmation dialog
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Remove Relay?") },
+            text = {
+                Column {
+                    Text("Remove ${relay.displayName} from this list?")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = relay.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onRemove()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -1173,133 +1236,136 @@ private fun RelayCategorySection(
     onOpenRelayLog: (String) -> Unit = {}
 ) {
     val isSubscribed = category.isSubscribed
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        // Category header row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onExpandToggle() },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: chevron + name
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                    contentDescription = if (isExpanded) "Collapse" else "Expand",
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Name with inline editing
-                if (isEditing) {
-                    BasicTextField(
-                        value = editingName,
-                        onValueChange = onEditingNameChange,
-                        textStyle = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = { onRenameCategory(editingName) },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = "Save",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                } else {
-                    Text(
-                        text = category.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSubscribed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "(${category.relays.size})",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Right: subscribe switch
-            Switch(
-                checked = isSubscribed,
-                onCheckedChange = { onToggleSubscription(category.id) },
-                modifier = Modifier.height(24.dp)
-            )
-        }
-
-        // Action row (edit, delete, add) — only when expanded
-        if (isExpanded) {
+    Column {
+        // Category header row (with padding)
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 28.dp, top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    ) { onExpandToggle() },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Edit name
-                if (!isEditing) {
-                    IconButton(
-                        onClick = onStartEditing,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit name",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                // Delete (not for default)
-                if (!category.isDefault) {
-                    IconButton(
-                        onClick = onDeleteCategory,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                // Add relay
-                IconButton(
-                    onClick = {
-                        if (!isExpanded) onExpandToggle()
-                        onToggleInput()
-                    },
-                    modifier = Modifier.size(32.dp)
+                // Left: chevron + name
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = if (showInput) Icons.Default.Remove else Icons.Default.Add,
-                        contentDescription = if (showInput) "Hide" else "Add relay",
+                        imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
                         modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Name with inline editing
+                    if (isEditing) {
+                        BasicTextField(
+                            value = editingName,
+                            onValueChange = onEditingNameChange,
+                            textStyle = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { onRenameCategory(editingName) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "Save",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = category.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSubscribed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "(${category.relays.size})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Right: subscribe switch
+                Switch(
+                    checked = isSubscribed,
+                    onCheckedChange = { onToggleSubscription(category.id) },
+                    modifier = Modifier.height(24.dp)
+                )
+            }
+
+            // Action row (edit, delete, add) — only when expanded, all on right side
+            if (isExpanded) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 28.dp, top = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Edit name
+                    if (!isEditing) {
+                        IconButton(
+                            onClick = onStartEditing,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit name",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // Delete (not for default)
+                    if (!category.isDefault) {
+                        IconButton(
+                            onClick = onDeleteCategory,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                    // Add relay
+                    IconButton(
+                        onClick = {
+                            if (!isExpanded) onExpandToggle()
+                            onToggleInput()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (showInput) Icons.Default.Remove else Icons.Default.Add,
+                            contentDescription = if (showInput) "Hide" else "Add relay",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
-        }
 
-        // Expanded content (input + relays)
-        if (isExpanded) {
-            if (showInput) {
+            // Expanded content: input (with padding)
+            if (isExpanded && showInput) {
                 Spacer(modifier = Modifier.height(8.dp))
                 RelayAddSectionNoPadding(
                     relayUrl = relayUrl,
@@ -1309,19 +1375,20 @@ private fun RelayCategorySection(
                     placeholder = "relay.example.com"
                 )
             }
+        }
 
-            if (category.relays.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                category.relays.forEachIndexed { index, relay ->
-                    RelaySettingsItem(
-                        relay = relay,
-                        connectionStatus = RelayConnectionStatus.DISCONNECTED,
-                        onOpenRelayLog = onOpenRelayLog,
-                        onRemove = { onRemoveRelay(relay) }
-                    )
-                    if (index < category.relays.size - 1) {
-                        HorizontalDivider(thickness = 1.dp)
-                    }
+        // Relay list (edge-to-edge, no horizontal padding for swipe-to-dismiss)
+        if (isExpanded && category.relays.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            category.relays.forEachIndexed { index, relay ->
+                RelaySettingsItem(
+                    relay = relay,
+                    connectionStatus = RelayConnectionStatus.DISCONNECTED,
+                    onOpenRelayLog = onOpenRelayLog,
+                    onRemove = { onRemoveRelay(relay) }
+                )
+                if (index < category.relays.size - 1) {
+                    HorizontalDivider(thickness = 1.dp)
                 }
             }
         }

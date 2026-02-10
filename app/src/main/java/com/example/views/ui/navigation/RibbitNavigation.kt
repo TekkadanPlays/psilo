@@ -71,6 +71,7 @@ import com.example.views.ui.screens.AccountPreferencesScreen
 import com.example.views.ui.screens.AppearanceSettingsScreen
 import com.example.views.ui.screens.ComposeNoteScreen
 import com.example.views.ui.screens.ComposeTopicScreen
+import com.example.views.ui.screens.ComposeTopicReplyScreen
 import com.example.views.ui.screens.DashboardScreen
 import com.example.views.ui.screens.DebugFollowListScreen
 import com.example.views.ui.screens.ImageContentViewerScreen
@@ -78,10 +79,13 @@ import com.example.views.ui.screens.VideoContentViewerScreen
 import com.example.views.ui.screens.ModernThreadViewScreen
 import com.example.views.ui.screens.NotificationsScreen
 import com.example.views.ui.screens.TopicsScreen
+import com.example.views.ui.screens.TopicThreadScreen
 import com.example.views.ui.screens.ProfileScreen
 import com.example.views.ui.screens.RelayLogScreen
 import com.example.views.ui.screens.RelayManagementScreen
 import com.example.views.ui.screens.SettingsScreen
+import com.example.views.ui.screens.LiveStreamScreen
+import com.example.views.ui.components.PipStreamOverlay
 import com.example.views.ui.screens.QrCodeScreen
 import com.example.views.ui.screens.ReplyComposeScreen
 import com.example.views.viewmodel.AppViewModel
@@ -136,9 +140,10 @@ fun RibbitNavigation(
     // This state is shared across main screens so collapse state persists during navigation
     val topAppBarState = rememberTopAppBarState()
 
-    // Dashboard and Topics list states for scroll-to-top (no feed refresh)
+    // Dashboard, Topics, and Notifications list states for scroll-to-top and position persistence
     val dashboardListState = rememberLazyListState()
     val topicsListState = rememberLazyListState()
+    val notificationsListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
     // Observe async toast messages (e.g. reaction failures)
@@ -231,16 +236,23 @@ fun RibbitNavigation(
     // Zap/reaction counts from kind-7 and kind-9735; used by Dashboard and Profile cards
     val noteCountsByNoteId by com.example.views.repository.NoteCountsRepository.countsByNoteId.collectAsState()
 
-    // Start notifications subscription when we have account + relays (works regardless of which tab is visible)
+    // Initialize notifications persistence (SharedPreferences for seen IDs)
+    LaunchedEffect(Unit) { NotificationsRepository.init(context) }
+
+    // Start notifications subscription and load anchor subscriptions when we have account + relays
     val storageManager = remember { RelayStorageManager(context) }
     LaunchedEffect(currentAccount) {
         val pubkey = currentAccount?.toHexKey() ?: return@LaunchedEffect
+        // Set current user pubkey so own events are displayed immediately in the feed
+        NotesRepository.getInstance().setCurrentUserPubkey(pubkey)
         val categories = storageManager.loadCategories(pubkey)
         val allUserRelayUrls = categories.flatMap { it.relays }.map { it.url }.distinct()
         if (allUserRelayUrls.isNotEmpty()) {
             val cacheUrls = storageManager.loadCacheRelays(pubkey).map { it.url }
             NotificationsRepository.setCacheRelayUrls(cacheUrls)
             NotificationsRepository.startSubscription(pubkey, allUserRelayUrls)
+            // Load kind:30073 anchor subscriptions (favorites) for this user
+            accountStateViewModel.requestMySubscriptions()
         }
     }
 
@@ -459,13 +471,14 @@ fun RibbitNavigation(
                                 navController.navigateToProfile(authorId)
                             },
                             onNavigateTo = { screen ->
-                                when (screen) {
-                                    "settings" -> navController.navigate("settings")
-                                    "relays" -> navController.navigate("relays")
-                                    "notifications" -> navController.navigate("notifications")
-                                    "messages" -> navController.navigate("messages")
-                                    "user_profile" -> currentAccount?.toHexKey()?.let { navController.navigateToProfile(it) }
-                                    "compose" -> navController.navigate("compose")
+                                when {
+                                    screen == "settings" -> navController.navigate("settings")
+                                    screen == "relays" -> navController.navigate("relays")
+                                    screen == "notifications" -> navController.navigate("notifications")
+                                    screen == "messages" -> navController.navigate("messages")
+                                    screen == "user_profile" -> currentAccount?.toHexKey()?.let { navController.navigateToProfile(it) }
+                                    screen == "compose" -> navController.navigate("compose")
+                                    screen.startsWith("live_stream/") -> navController.navigate(screen)
                                 }
                             },
                             onThreadClick = { note, _ ->
@@ -917,6 +930,31 @@ fun RibbitNavigation(
                     }
                 }
 
+                // NIP-53 Live Stream viewer
+                composable(
+                    route = "live_stream/{addressableId}",
+                    arguments = listOf(navArgument("addressableId") { type = NavType.StringType }),
+                    enterTransition = {
+                        slideIntoContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                            animationSpec = tween(300)
+                        )
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.End,
+                            animationSpec = tween(300)
+                        )
+                    }
+                ) { backStackEntry ->
+                    val addressableId = backStackEntry.arguments?.getString("addressableId") ?: return@composable
+                    LiveStreamScreen(
+                        activityAddressableId = addressableId,
+                        onBackClick = { navController.popBackStack() },
+                        onProfileClick = { authorId -> navController.navigateToProfile(authorId) }
+                    )
+                }
+
                 // Profile view - Can navigate to threads and other profiles
                 composable(
                         route = "profile/{authorId}",
@@ -1212,7 +1250,10 @@ fun RibbitNavigation(
                 }
 
                 composable("settings/about") {
-                    AboutScreen(onBackClick = { navController.popBackStack() })
+                    AboutScreen(
+                        onBackClick = { navController.popBackStack() },
+                        onProfileClick = { pubkey -> navController.navigate("profile/$pubkey") }
+                    )
                 }
 
                 composable("debug_follow_list") {
@@ -1261,6 +1302,7 @@ fun RibbitNavigation(
                 // Notifications - Can navigate to threads and profiles
                 composable("notifications") {
                     NotificationsScreen(
+                            listState = notificationsListState,
                             onBackClick = {
                                 navController.popBackStack()
                             },
@@ -1332,6 +1374,80 @@ fun RibbitNavigation(
                     )
                 }
 
+                // Topic Thread - View kind:11 topic with kind:1 replies
+                composable(
+                    route = "topic_thread/{topicId}",
+                    arguments = listOf(
+                        navArgument("topicId") { type = NavType.StringType }
+                    )
+                ) { backStackEntry ->
+                    val topicId = backStackEntry.arguments?.getString("topicId") ?: return@composable
+                    val topicsRepository = remember { com.example.views.repository.TopicsRepository.getInstance(context) }
+                    val allTopics by topicsRepository.topics.collectAsState()
+                    val topic = allTopics[topicId]
+                    
+                    // Get relay URLs for fetching kind:1111 replies
+                    val currentAccount by accountStateViewModel.currentAccount.collectAsState()
+                    val topicThreadStorageManager = remember(context) { RelayStorageManager(context) }
+                    val topicRelayUrls = remember(currentAccount) {
+                        currentAccount?.toHexKey()?.let { pubkey ->
+                            val categories = topicThreadStorageManager.loadCategories(pubkey)
+                            val subscribedRelays = categories.filter { it.isSubscribed }
+                                .flatMap { it.relays }.map { it.url }.distinct()
+                            subscribedRelays.ifEmpty {
+                                categories.flatMap { it.relays }.map { it.url }.distinct()
+                            }
+                        } ?: emptyList()
+                    }
+                    val topicCacheRelayUrls = remember(currentAccount) {
+                        currentAccount?.toHexKey()?.let { pubkey ->
+                            topicThreadStorageManager.loadCacheRelays(pubkey).map { it.url }
+                        } ?: emptyList()
+                    }
+                    
+                    if (topic != null) {
+                        TopicThreadScreen(
+                            topic = topic,
+                            onBackClick = { navController.popBackStack() },
+                            onReplyKind1111Click = {
+                                // Navigate to kind:1111 reply (existing reply compose)
+                                val rootId = topicId
+                                val rootPubkey = topic.author.id
+                                navController.navigate("reply_compose?rootId=$rootId&rootPubkey=$rootPubkey")
+                            },
+                            onReplyKind1Click = {
+                                // Navigate to kind:1 reply with I tags
+                                val encoded = android.net.Uri.encode(topicId)
+                                navController.navigate("compose_topic_reply/$encoded")
+                            },
+                            onProfileClick = { authorId ->
+                                navController.navigateToProfile(authorId)
+                            },
+                            onImageTap = { note, urls, index ->
+                                appViewModel.updateSelectedNote(note)
+                                navController.navigate("image_viewer")
+                            },
+                            onOpenImageViewer = { urls, index ->
+                                navController.navigate("image_viewer")
+                            },
+                            onVideoClick = { urls, index ->
+                                navController.navigate("video_viewer")
+                            },
+                            accountStateViewModel = accountStateViewModel,
+                            relayUrls = topicRelayUrls,
+                            cacheRelayUrls = topicCacheRelayUrls
+                        )
+                    } else {
+                        // Topic not found - show loading or error
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+
                 composable("compose") {
                     val composeContext = LocalContext.current
                     val composeStorageManager = remember(composeContext) { RelayStorageManager(composeContext) }
@@ -1365,6 +1481,34 @@ fun RibbitNavigation(
                     )
                 }
 
+                // Compose kind:1 reply to topic with I tags (mesh network reply)
+                composable(
+                    route = "compose_topic_reply/{topicId}",
+                    arguments = listOf(
+                        navArgument("topicId") { type = NavType.StringType }
+                    )
+                ) { backStackEntry ->
+                    val topicId = backStackEntry.arguments?.getString("topicId") ?: return@composable
+                    val topicsRepository = remember { com.example.views.repository.TopicsRepository.getInstance(context) }
+                    val allTopics by topicsRepository.topics.collectAsState()
+                    val topic = allTopics[topicId]
+                    
+                    if (topic != null) {
+                        ComposeTopicReplyScreen(
+                            topic = topic,
+                            onBack = { navController.popBackStack() },
+                            accountStateViewModel = accountStateViewModel
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+
                 composable(
                     route = "reply_compose?rootId={rootId}&rootPubkey={rootPubkey}&parentId={parentId}&parentPubkey={parentPubkey}",
                     arguments = listOf(
@@ -1395,6 +1539,14 @@ fun RibbitNavigation(
                     )
                 }
             }
+
+            // PiP mini-player overlay — floats above all screens
+            PipStreamOverlay(
+                onTapToReturn = { addressableId ->
+                    val encoded = android.net.Uri.encode(addressableId)
+                    navController.navigate("live_stream/$encoded")
+                }
+            )
         }
     }
 }

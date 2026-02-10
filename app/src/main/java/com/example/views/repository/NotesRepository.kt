@@ -74,6 +74,7 @@ class NotesRepository private constructor() {
 
     private val relayStateMachine = RelayConnectionStateMachine.getInstance()
     private val profileCache = ProfileMetadataCache.getInstance()
+    private val topicRepliesRepo = TopicRepliesRepository.getInstance()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var cacheRelayUrls = listOf<String>()
@@ -90,6 +91,11 @@ class NotesRepository private constructor() {
         relayStateMachine.registerKind1Handler { event, relayUrl ->
             scope.launch {
                 processEventMutex.withLock { handleEventInternal(event, relayUrl) }
+            }
+        }
+        relayStateMachine.registerKind6Handler { event, relayUrl ->
+            scope.launch {
+                processEventMutex.withLock { handleKind6Repost(event, relayUrl) }
             }
         }
         startProfileUpdateCoalescer()
@@ -251,8 +257,13 @@ class NotesRepository private constructor() {
                     _notes.value = list
                     _displayedNotes.value = list
                     initialLoadComplete = true
+                    // Mark grace period as consumed so new subscription events go to pending
+                    val now = System.currentTimeMillis()
+                    firstNoteDisplayedAtMs = now - INITIAL_FEED_GRACE_MS - 1
+                    feedCutoffTimestampMs = now
+                    latestNoteTimestampAtOpen = list.maxOfOrNull { it.timestamp } ?: now
                     _feedSessionState.value = FeedSessionState.Live
-                    Log.d(TAG, "Restored ${list.size} notes from feed cache")
+                    Log.d(TAG, "Restored ${list.size} notes from feed cache (grace period consumed)")
                     // Re-resolve authors from the (now-loaded) profile cache so restored
                     // notes render with display names and avatars immediately.
                     refreshAuthorsFromCache()
@@ -660,6 +671,10 @@ class NotesRepository private constructor() {
                 val note = convertEventToNote(event, relayUrl)
                 val followSet = followFilter
                 if (followFilterEnabled && followSet != null && note.author.id.lowercase() !in followSet) return
+                
+                // Track kind:1 notes with I tags as topic replies (NIP-22)
+                topicRepliesRepo.processKind1Note(note)
+                
                 if (note.isReply) {
                     Nip10ReplyDetector.getRootId(event)?.let { rootId ->
                         ThreadReplyCache.addReply(rootId, note)
@@ -708,10 +723,11 @@ class NotesRepository private constructor() {
                     val now = System.currentTimeMillis()
                     val withinGracePeriod = firstNoteDisplayedAtMs == 0L ||
                         (now - firstNoteDisplayedAtMs) < INITIAL_FEED_GRACE_MS
-                    if (isOwnEvent || withinGracePeriod) {
+                    if (isOwnEvent || withinGracePeriod || isOlderThanCutoff) {
+                        // Own events, grace period notes, and late-arriving historical notes merge into feed silently
                         val newNotes = trimNotesToCap((currentNotes + note).sortedByDescending { it.timestamp })
                         _notes.value = newNotes
-                        updateDisplayedNotes()
+                        scheduleDisplayUpdate()
                         if (firstNoteDisplayedAtMs == 0L && _displayedNotes.value.isNotEmpty()) {
                             firstNoteDisplayedAtMs = now
                         }
@@ -719,7 +735,7 @@ class NotesRepository private constructor() {
                             Log.d(TAG, "📤 Own event displayed immediately: ${note.id.take(8)}")
                         }
                     } else {
-                        // Event from others - use pending logic
+                        // Truly new event (newer than cutoff) from others - goes to pending
                         synchronized(pendingNotesLock) { _pendingNewNotes.add(note) }
                         updateDisplayedNewNotesCount()
                         val pendingSize = synchronized(pendingNotesLock) { _pendingNewNotes.size }
@@ -732,6 +748,95 @@ class NotesRepository private constructor() {
             }
         } catch (e: Throwable) {
             Log.e(TAG, "Error handling event: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Handle kind-6 repost event: parse the reposted kind-1 note from the event content (JSON),
+     * set repostedBy to the reposter's author, and inject into the feed as a normal note.
+     * The repost event's pubkey is the reposter; the content contains the original note JSON.
+     * Uses the repost event's timestamp so it appears at the time of repost, not the original note time.
+     */
+    private suspend fun handleKind6Repost(event: Event, relayUrl: String) {
+        try {
+            val reposterPubkey = event.pubKey
+            val reposterAuthor = profileCache.resolveAuthor(reposterPubkey)
+            val profileRelayUrls = (cacheRelayUrls + subscriptionRelays).distinct().filter { it.isNotBlank() }
+            if (profileCache.getAuthor(reposterPubkey) == null && profileRelayUrls.isNotEmpty()) {
+                pendingProfilePubkeys.add(reposterPubkey.lowercase())
+                scheduleBatchProfileRequest(profileRelayUrls)
+            }
+
+            // Parse the reposted note from the event content (JSON of the original kind-1 event)
+            val content = event.content
+            if (content.isBlank()) return
+
+            val noteId = Regex(""""id"\s*:\s*"([a-f0-9]{64})"""").find(content)?.groupValues?.get(1) ?: return
+            val notePubkey = Regex(""""pubkey"\s*:\s*"([a-f0-9]{64})"""").find(content)?.groupValues?.get(1) ?: return
+            val noteCreatedAt = Regex(""""created_at"\s*:\s*(\d+)""").find(content)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+            val noteContent = Regex(""""content"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"""").find(content)?.groupValues?.get(1)
+                ?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\\\", "\\")
+                ?: ""
+
+            // Check follow filter: if Following mode, skip reposts of non-followed authors
+            val followSet = followFilter
+            if (followFilterEnabled && followSet != null && notePubkey.lowercase() !in followSet) return
+
+            val noteAuthor = profileCache.resolveAuthor(notePubkey)
+            if (profileCache.getAuthor(notePubkey) == null && profileRelayUrls.isNotEmpty()) {
+                pendingProfilePubkeys.add(notePubkey.lowercase())
+                scheduleBatchProfileRequest(profileRelayUrls)
+            }
+
+            // Extract hashtags from content
+            val hashtagRegex = Regex(""""t"\s*,\s*"([^"]+)"""")
+            val hashtags = hashtagRegex.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }.toList()
+
+            val mediaUrls = UrlDetector.findUrls(noteContent).filter { UrlDetector.isImageUrl(it) || UrlDetector.isVideoUrl(it) }.distinct()
+
+            // Use the repost event's timestamp so it appears at the time of repost
+            val repostTimestampMs = event.createdAt * 1000L
+
+            // Use a composite ID so the same note reposted by different people creates separate entries
+            val compositeId = "repost:${event.id}"
+
+            val note = Note(
+                id = compositeId,
+                author = noteAuthor,
+                content = noteContent,
+                timestamp = repostTimestampMs,
+                likes = 0,
+                shares = 0,
+                comments = 0,
+                isLiked = false,
+                hashtags = hashtags,
+                mediaUrls = mediaUrls,
+                relayUrl = relayUrl.ifEmpty { null },
+                relayUrls = if (relayUrl.isNotEmpty()) listOf(relayUrl) else emptyList(),
+                isReply = false,
+                repostedBy = reposterAuthor
+            )
+
+            // Skip if already in feed or pending
+            val currentNotes = _notes.value
+            if (currentNotes.any { it.id == compositeId }) return
+            val alreadyPending = synchronized(pendingNotesLock) { _pendingNewNotes.any { it.id == compositeId } }
+            if (alreadyPending) return
+
+            // Insert into feed using same logic as kind-1
+            val cutoff = feedCutoffTimestampMs
+            val isOlderThanCutoff = cutoff <= 0L || note.timestamp <= cutoff
+
+            if (!initialLoadComplete || isOlderThanCutoff) {
+                val newNotes = trimNotesToCap((currentNotes + note).sortedByDescending { it.timestamp })
+                _notes.value = newNotes
+                scheduleDisplayUpdate()
+            } else {
+                synchronized(pendingNotesLock) { _pendingNewNotes.add(note) }
+                updateDisplayedNewNotesCount()
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error handling kind-6 repost: ${e.message}", e)
         }
     }
 
@@ -783,6 +888,10 @@ class NotesRepository private constructor() {
         val quotedEventIds = Nip19QuoteParser.extractQuotedEventIds(event.content)
         val isReply = Nip10ReplyDetector.isReply(event)
         val relayUrls = if (storedRelayUrl != null) listOf(storedRelayUrl) else emptyList()
+        
+        // Convert event tags to List<List<String>> for NIP-22 I tags and better e tag tracking
+        val tags = event.tags.map { it.toList() }
+        
         return Note(
             id = event.id,
             author = author,
@@ -797,7 +906,8 @@ class NotesRepository private constructor() {
             quotedEventIds = quotedEventIds,
             relayUrl = storedRelayUrl,
             relayUrls = relayUrls,
-            isReply = isReply
+            isReply = isReply,
+            tags = tags
         )
     }
 
@@ -894,15 +1004,22 @@ class NotesRepository private constructor() {
                         profileCache.getAuthor(key)?.let { key to it }
                     }.toMap()
                     if (authorMap.isEmpty()) return@launch
-                    _notes.value = _notes.value.map { note ->
+                    fun updateNote(note: Note): Note {
                         val key = normalizeAuthorIdForCache(note.author.id)
-                        authorMap[key]?.let { note.copy(author = it) } ?: note
-                    }
-                    synchronized(pendingNotesLock) {
-                        val updated = _pendingNewNotes.map { note ->
-                            val key = normalizeAuthorIdForCache(note.author.id)
-                            authorMap[key]?.let { note.copy(author = it) } ?: note
+                        val updatedAuthor = authorMap[key]
+                        val updatedRepostedBy = note.repostedBy?.let { rb ->
+                            authorMap[normalizeAuthorIdForCache(rb.id)]
                         }
+                        return when {
+                            updatedAuthor != null && updatedRepostedBy != null -> note.copy(author = updatedAuthor, repostedBy = updatedRepostedBy)
+                            updatedAuthor != null -> note.copy(author = updatedAuthor)
+                            updatedRepostedBy != null -> note.copy(repostedBy = updatedRepostedBy)
+                            else -> note
+                        }
+                    }
+                    _notes.value = _notes.value.map { updateNote(it) }
+                    synchronized(pendingNotesLock) {
+                        val updated = _pendingNewNotes.map { updateNote(it) }
                         _pendingNewNotes.clear()
                         _pendingNewNotes.addAll(updated)
                     }

@@ -26,6 +26,60 @@ object TopicsPublishService {
         }
     }
 
+    // ── NIP-22: Anchored Events ──────────────────────────────────────────
+
+    /**
+     * Build a Kind 1011 scoped moderation event: mark a note as off-topic within an anchor.
+     * Tags: ["I", anchor], ["e", noteId]. Content is a human-readable reason.
+     */
+    fun buildOffTopicModerationTemplate(
+        anchor: String,
+        noteId: String,
+        reason: String = "off-topic"
+    ): EventTemplate<Event> {
+        return Event.build(1011, reason) {
+            add(arrayOf("I", anchor))
+            add(arrayOf("e", noteId))
+        }
+    }
+
+    /**
+     * Build a Kind 1011 scoped moderation event: exclude a user from an anchor.
+     * Tags: ["I", anchor], ["p", pubkey]. Content is a human-readable reason.
+     */
+    fun buildUserExclusionModerationTemplate(
+        anchor: String,
+        pubkey: String,
+        reason: String = "removed from topic"
+    ): EventTemplate<Event> {
+        return Event.build(1011, reason) {
+            add(arrayOf("I", anchor))
+            add(arrayOf("p", pubkey))
+        }
+    }
+
+    /**
+     * Build a Kind 30073 anchor subscription event (parameterized replaceable, d="").
+     * Public anchors are stored as I tags; moderator pubkeys as p tags with "moderator" marker.
+     */
+    fun buildAnchorSubscriptionTemplate(
+        anchors: List<String>,
+        moderators: Map<String, List<String>> = emptyMap()
+    ): EventTemplate<Event> {
+        return Event.build(30073, "") {
+            add(arrayOf("d", ""))
+            anchors.forEach { anchor ->
+                add(arrayOf("I", anchor))
+            }
+            moderators.forEach { (anchor, pubkeys) ->
+                pubkeys.forEach { pubkey ->
+                    add(arrayOf("p", pubkey, "", "moderator"))
+                    add(arrayOf("I", anchor))
+                }
+            }
+        }
+    }
+
     /**
      * Build a Kind 1111 thread reply event template. Root: E, K, P; parent: e, k, p. Caller signs and sends.
      */

@@ -38,7 +38,11 @@ data class Note(
     /** Nostr event kind (1 = text note, 11 = topic root, 1111 = thread reply). Used for NIP-25 reaction "k" tag. */
     val kind: Int = 1,
     /** Topic/subject title for kind-11 topic roots and kind-1111 thread roots; shown as SUBJECT row when set. */
-    val topicTitle: String? = null
+    val topicTitle: String? = null,
+    /** Raw event tags for NIP-22 I tags (anchors), NIP-10 e tags, etc. Each tag is an array of strings. */
+    val tags: List<List<String>> = emptyList(),
+    /** Author who reposted this note (kind-6); when non-null, NoteCard shows "🔁 reposted by X" header. */
+    val repostedBy: Author? = null
 )
 
 @Immutable

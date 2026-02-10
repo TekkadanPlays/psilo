@@ -1,5 +1,7 @@
 package com.example.views.repository
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.example.views.data.Author
 import com.example.views.data.NotificationData
@@ -28,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Repository for real Nostr notifications: events that reference the user (p tag).
  * Amethyst-style: kinds 1 (reply/mention), 7 (like), 6 (repost), 9735 (zap). No follows.
  * Parses e-tags for target note, root/reply for replies; consolidates reposts by reposted note id.
+ * Seen IDs are persisted to SharedPreferences so badge survives app restart.
  */
 object NotificationsRepository {
 
@@ -38,6 +41,8 @@ object NotificationsRepository {
     private const val NOTIFICATION_KIND_ZAP = 9735
     private const val NOTIFICATION_KIND_TOPIC_REPLY = 1111
     private const val ONE_WEEK_SEC = 7 * 24 * 60 * 60L
+    private const val PREFS_NAME = "notifications_seen"
+    private const val PREFS_KEY_SEEN_IDS = "seen_ids"
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val profileCache = ProfileMetadataCache.getInstance()
@@ -60,6 +65,25 @@ object NotificationsRepository {
     /** Current user hex pubkey (p-tag); used to filter kind-7 so we only show reactions to our notes. */
     private var myPubkeyHex: String? = null
 
+    private var prefs: SharedPreferences? = null
+
+    /** Call once from Application or Activity to enable persistent seen IDs. */
+    fun init(context: Context) {
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        loadSeenIds()
+    }
+
+    private fun loadSeenIds() {
+        val stored = prefs?.getStringSet(PREFS_KEY_SEEN_IDS, emptySet()) ?: emptySet()
+        _seenIds.value = stored.toSet()
+    }
+
+    private fun persistSeenIds() {
+        scope.launch(Dispatchers.IO) {
+            prefs?.edit()?.putStringSet(PREFS_KEY_SEEN_IDS, _seenIds.value)?.apply()
+        }
+    }
+
     fun setCacheRelayUrls(urls: List<String>) {
         cacheRelayUrls = urls
     }
@@ -69,11 +93,13 @@ object NotificationsRepository {
     /** Mark all current notifications as seen (e.g. when user opens the notifications screen). Clears badge. */
     fun markAllAsSeen() {
         _seenIds.value = _notifications.value.mapTo(mutableSetOf()) { it.id }
+        persistSeenIds()
     }
 
     /** Mark one notification as seen (e.g. when user taps it to open thread). */
     fun markAsSeen(notificationId: String) {
         _seenIds.value = _seenIds.value + notificationId
+        persistSeenIds()
     }
 
     /**
@@ -129,23 +155,34 @@ object NotificationsRepository {
     private fun handleLike(event: Event, author: Author, ts: Long) {
         val eTag = event.tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.get(1)
         if (eTag == null) return
+        // Parse NIP-25 reaction emoji from event content (Amethyst-style)
+        val rawContent = event.content.ifBlank { "+" }
+        if (rawContent == "-") return // skip downvotes
+        val emoji = when {
+            rawContent == "+" -> "❤️"
+            rawContent.startsWith(":") && rawContent.endsWith(":") -> rawContent // :shortcode: custom emoji
+            else -> rawContent // actual emoji character(s)
+        }
         val list = likeByTargetId.getOrPut(eTag) { mutableListOf() }
         synchronized(list) {
             if (list.none { it.first == event.pubKey }) list.add(event.pubKey to ts)
         }
+        // Track the emoji for this target note (use latest/most common)
+        likeEmojiByTargetId[eTag] = emoji
         val actorPubkeys = list.map { it.first }.distinct()
         val latestTs = list.maxOfOrNull { it.second } ?: ts
-        val text = if (actorPubkeys.size == 1) "${author.displayName} liked your post" else "${actorPubkeys.size} people liked your post"
+        val action = if (emoji == "❤️") "liked your post" else "reacted $emoji to your post"
+        val text = buildActorText(actorPubkeys, action)
         val data = NotificationData(
             id = "like:$eTag",
             type = NotificationType.LIKE,
             text = text,
-            timeAgo = formatTimeAgo(latestTs),
             note = null,
             author = author,
             targetNoteId = eTag,
             actorPubkeys = actorPubkeys,
-            sortTimestamp = latestTs
+            sortTimestamp = latestTs,
+            reactionEmoji = emoji
         )
         notificationsById[data.id] = data
         emitSorted()
@@ -171,7 +208,6 @@ object NotificationsRepository {
             id = event.id,
             type = notifType,
             text = text,
-            timeAgo = formatTimeAgo(ts),
             note = note,
             author = author,
             rootNoteId = rootId,
@@ -205,15 +241,13 @@ object NotificationsRepository {
     private fun handleTopicReply(event: Event, author: Author, ts: Long) {
         if (myPubkeyHex != null && normalizeAuthorIdForCache(author.id) == myPubkeyHex) return
         val rootId = getTopicReplyRootNoteId(event) ?: return
-        val pTags = event.tags.filter { it.size >= 2 && it[0] == "p" }.map { it[1].lowercase() }
-        val isDirectlyTagged = myPubkeyHex != null && myPubkeyHex!!.lowercase() in pTags
-        if (!isDirectlyTagged) return
+        // Accept if user is p-tagged; otherwise still create the notification and verify
+        // via fetchAndSetTargetNote (which removes it if root author isn't us)
         val note = eventToNote(event)
         val data = NotificationData(
             id = event.id,
             type = NotificationType.REPLY,
-            text = "${author.displayName} replied to your topic",
-            timeAgo = formatTimeAgo(ts),
+            text = "${author.displayName} commented on your post",
             note = note,
             author = author,
             rootNoteId = rootId,
@@ -240,7 +274,8 @@ object NotificationsRepository {
 
     private val repostByTargetId = ConcurrentHashMap<String, MutableList<Pair<String, Long>>>()
     private val likeByTargetId = ConcurrentHashMap<String, MutableList<Pair<String, Long>>>()
-    private val zapByTargetId = ConcurrentHashMap<String, MutableList<Pair<String, Long>>>()
+    private val likeEmojiByTargetId = ConcurrentHashMap<String, String>()
+    private val zapByTargetId = ConcurrentHashMap<String, MutableList<Triple<String, Long, Long>>>() // pubkey, timestamp, amountSats
 
     private fun handleRepost(event: Event, author: Author, ts: Long) {
         val repostedNoteId = event.tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.get(1)
@@ -250,7 +285,6 @@ object NotificationsRepository {
                 id = event.id,
                 type = NotificationType.REPOST,
                 text = "${author.displayName} reposted",
-                timeAgo = formatTimeAgo(ts),
                 note = null,
                 author = author,
                 sortTimestamp = ts
@@ -266,11 +300,11 @@ object NotificationsRepository {
         val reposterPubkeys = list.map { it.first }.distinct()
         val latestTs = list.maxOfOrNull { it.second } ?: ts
         val targetNote = parseRepostedNoteFromContent(event.content)
+        val text = buildActorText(reposterPubkeys, "reposted your post")
         val data = NotificationData(
             id = "repost:$repostedNoteId",
             type = NotificationType.REPOST,
-            text = if (reposterPubkeys.size == 1) "${author.displayName} reposted your post" else "${reposterPubkeys.size} reposted your post",
-            timeAgo = formatTimeAgo(latestTs),
+            text = text,
             note = null,
             author = author,
             targetNote = targetNote,
@@ -306,27 +340,112 @@ object NotificationsRepository {
     private fun handleZap(event: Event, author: Author, ts: Long) {
         val eTag = event.tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.get(1)
         if (eTag == null) return
+        val amountSats = parseZapAmountSats(event)
+        // Kind-9735 pubkey is the wallet/LNURL service (e.g. Coinos), NOT the actual zapper.
+        // The real zapper's pubkey is inside the "description" tag which contains the kind-9734 zap request JSON.
+        val realZapperPubkey = parseZapSenderPubkey(event)
+        val zapperPubkey = realZapperPubkey ?: event.pubKey
+        val zapperAuthor = if (realZapperPubkey != null) {
+            val resolved = profileCache.resolveAuthor(realZapperPubkey)
+            if (profileCache.getAuthor(realZapperPubkey) == null && cacheRelayUrls.isNotEmpty()) {
+                scope.launch { profileCache.requestProfiles(listOf(realZapperPubkey), cacheRelayUrls) }
+            }
+            resolved
+        } else author
         val list = zapByTargetId.getOrPut(eTag) { mutableListOf() }
         synchronized(list) {
-            if (list.none { it.first == event.pubKey }) list.add(event.pubKey to ts)
+            if (list.none { it.first == zapperPubkey }) list.add(Triple(zapperPubkey, ts, amountSats))
         }
         val actorPubkeys = list.map { it.first }.distinct()
         val latestTs = list.maxOfOrNull { it.second } ?: ts
-        val text = if (actorPubkeys.size == 1) "${author.displayName} zapped your post" else "${actorPubkeys.size} people zapped your post"
+        val totalSats = list.sumOf { it.third }
+        val satsLabel = if (totalSats > 0) formatSats(totalSats) else ""
+        val text = buildActorText(actorPubkeys, if (satsLabel.isNotEmpty()) "zapped $satsLabel" else "zapped your post")
         val data = NotificationData(
             id = "zap:$eTag",
             type = NotificationType.ZAP,
             text = text,
-            timeAgo = formatTimeAgo(latestTs),
             note = null,
-            author = author,
+            author = zapperAuthor,
             targetNoteId = eTag,
             actorPubkeys = actorPubkeys,
-            sortTimestamp = latestTs
+            sortTimestamp = latestTs,
+            zapAmountSats = totalSats
         )
         notificationsById[data.id] = data
         emitSorted()
         scope.launch { fetchAndSetTargetNote(eTag, data.id) { d -> { note -> d.copy(targetNote = note) } } }
+    }
+
+    /** Parse the real zapper's pubkey from the kind-9734 zap request embedded in the "description" tag. */
+    private fun parseZapSenderPubkey(event: Event): String? {
+        val descTag = event.tags.firstOrNull { it.size >= 2 && it[0] == "description" }?.get(1)
+            ?: return null
+        return try {
+            val pubkeyMatch = Regex(""""pubkey"\s*:\s*"([a-f0-9]{64})"""").find(descTag)
+            pubkeyMatch?.groupValues?.get(1)
+        } catch (_: Exception) { null }
+    }
+
+    /** Parse zap amount from bolt11 tag or description tag's bolt11 field. */
+    private fun parseZapAmountSats(event: Event): Long {
+        // Try bolt11 tag directly
+        val bolt11 = event.tags.firstOrNull { it.size >= 2 && it[0] == "bolt11" }?.get(1)
+        if (bolt11 != null) {
+            val sats = decodeBolt11Amount(bolt11)
+            if (sats > 0) return sats
+        }
+        // Try description tag (zap request JSON) which may contain amount
+        val descTag = event.tags.firstOrNull { it.size >= 2 && it[0] == "description" }?.get(1)
+        if (descTag != null) {
+            try {
+                val amountMatch = Regex(""""amount"\s*:\s*"?(\d+)"?""").find(descTag)
+                val milliSats = amountMatch?.groupValues?.get(1)?.toLongOrNull()
+                if (milliSats != null && milliSats > 0) return milliSats / 1000
+            } catch (_: Exception) { }
+        }
+        return 0L
+    }
+
+    /** Decode amount from a bolt11 (BOLT-11) lightning invoice string. */
+    private fun decodeBolt11Amount(bolt11: String): Long {
+        val lower = bolt11.lowercase()
+        // bolt11 format: lnbc<amount><multiplier>1p...
+        val amountMatch = Regex("""^lnbc(\d+)([munp]?)""").find(lower) ?: return 0L
+        val num = amountMatch.groupValues[1].toLongOrNull() ?: return 0L
+        val multiplier = amountMatch.groupValues[2]
+        // Convert to sats (1 BTC = 100_000_000 sats)
+        val btcValue = when (multiplier) {
+            "m" -> num * 100_000L       // milli-BTC -> sats
+            "u" -> num * 100L           // micro-BTC -> sats
+            "n" -> num / 10L            // nano-BTC -> sats (0.1 sat per nano)
+            "p" -> num / 10_000L        // pico-BTC -> sats
+            "" -> num * 100_000_000L    // whole BTC -> sats
+            else -> 0L
+        }
+        return btcValue
+    }
+
+    /** Format sats for display: "1,000 sats", "21 sats", etc. */
+    private fun formatSats(sats: Long): String {
+        return when {
+            sats >= 1_000_000 -> "${sats / 1_000_000}.${(sats % 1_000_000) / 100_000}M sats"
+            sats >= 1_000 -> "${sats / 1_000}.${(sats % 1_000) / 100}K sats"
+            else -> "$sats sats"
+        }
+    }
+
+    /** Build human-readable actor text like "Alice liked your post" or "Alice, Bob, and 3 others liked your post". */
+    private fun buildActorText(actorPubkeys: List<String>, action: String): String {
+        val names = actorPubkeys.take(2).map { pk ->
+            profileCache.getAuthor(pk)?.displayName?.takeIf { it.isNotBlank() }
+                ?: profileCache.resolveAuthor(pk).displayName
+        }
+        return when (actorPubkeys.size) {
+            1 -> "${names[0]} $action"
+            2 -> "${names[0]} and ${names[1]} $action"
+            else -> "${names[0]}, ${names[1]}, and ${actorPubkeys.size - 2} others $action"
+        }
     }
 
     private fun emitSorted() {
@@ -337,11 +456,11 @@ object NotificationsRepository {
 
     private suspend fun fetchAndSetTargetNote(noteId: String, notificationId: String, update: (NotificationData) -> (Note?) -> NotificationData) {
         if (subscriptionRelayUrls.isEmpty()) return
-        val filter = Filter(kinds = listOf(1), ids = listOf(noteId), limit = 1)
+        val filter = Filter(kinds = listOf(1, 11), ids = listOf(noteId), limit = 1)
         var fetched: Note? = null
         val stateMachine = RelayConnectionStateMachine.getInstance()
         val handle = stateMachine.requestTemporarySubscription(subscriptionRelayUrls, filter) { ev ->
-            if (ev.kind == 1) fetched = eventToNote(ev)
+            if (ev.kind == 1 || ev.kind == 11) fetched = eventToNote(ev)
         }
         delay(3000)
         handle.cancel()
@@ -376,10 +495,12 @@ object NotificationsRepository {
         val hashtags = event.tags.toList()
             .filter { it.size >= 2 && it[0] == "t" }
             .mapNotNull { it.getOrNull(1) }
+        // Resolve nostr:npub1... mentions to @displayName for cleaner notification previews
+        val resolvedContent = resolveNpubMentions(event.content)
         return Note(
             id = event.id,
             author = author,
-            content = event.content,
+            content = resolvedContent,
             timestamp = event.createdAt * 1000L,
             likes = 0,
             shares = 0,
@@ -391,13 +512,35 @@ object NotificationsRepository {
         )
     }
 
-    private fun formatTimeAgo(timestampMs: Long): String {
-        val diff = System.currentTimeMillis() - timestampMs
-        return when {
-            diff < 60_000 -> "${diff / 1000}s ago"
-            diff < 3_600_000 -> "${diff / 60_000}m ago"
-            diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-            else -> "${diff / 86_400_000}d ago"
+    /** Replace nostr:npub1... and nostr:nprofile1... with @displayName for notification text previews. */
+    private fun resolveNpubMentions(content: String): String {
+        val npubRegex = Regex("nostr:(npub1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)", RegexOption.IGNORE_CASE)
+        val nprofileRegex = Regex("nostr:(nprofile1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+)", RegexOption.IGNORE_CASE)
+        var result = content
+        // Resolve nprofile first (longer match)
+        nprofileRegex.findAll(content).toList().reversed().forEach { match ->
+            try {
+                val parsed = com.vitorpamplona.quartz.nip19Bech32.Nip19Parser.uriToRoute("nostr:${match.groupValues[1]}")
+                val hex = (parsed?.entity as? com.vitorpamplona.quartz.nip19Bech32.entities.NProfile)?.hex
+                if (hex != null && hex.length == 64) {
+                    val author = profileCache.resolveAuthor(hex)
+                    val name = author.displayName.takeIf { !it.endsWith("...") && it != author.username } ?: author.username
+                    result = result.replaceRange(match.range, "@$name")
+                }
+            } catch (_: Exception) { }
         }
+        // Resolve npub
+        npubRegex.findAll(result).toList().reversed().forEach { match ->
+            try {
+                val parsed = com.vitorpamplona.quartz.nip19Bech32.Nip19Parser.uriToRoute("nostr:${match.groupValues[1]}")
+                val hex = (parsed?.entity as? com.vitorpamplona.quartz.nip19Bech32.entities.NPub)?.hex
+                if (hex != null && hex.length == 64) {
+                    val author = profileCache.resolveAuthor(hex)
+                    val name = author.displayName.takeIf { !it.endsWith("...") && it != author.username } ?: author.username
+                    result = result.replaceRange(match.range, "@$name")
+                }
+            } catch (_: Exception) { }
+        }
+        return result
     }
 }

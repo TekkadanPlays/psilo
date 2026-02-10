@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import android.util.LruCache
 import com.example.views.data.Author
+import com.example.views.data.Note
 import com.example.views.relay.RelayConnectionStateMachine
 import com.vitorpamplona.quartz.nip01Core.relay.filters.Filter
 import com.vitorpamplona.quartz.nip01Core.core.Event
@@ -37,7 +38,28 @@ data class TopicNote(
     val replyCount: Int = 0,
     val relayUrl: String = "",
     val relayUrls: List<String> = emptyList()
-)
+) {
+    /**
+     * Convert TopicNote to Note for navigation and display compatibility.
+     * Sets kind = 11 and topicTitle so thread views render correctly.
+     */
+    fun toNote(): Note = Note(
+        id = id,
+        author = author,
+        content = content,
+        timestamp = timestamp,
+        likes = 0,
+        shares = 0,
+        comments = replyCount,
+        isLiked = false,
+        hashtags = hashtags,
+        mediaUrls = emptyList(),
+        kind = 11,
+        topicTitle = title.ifEmpty { null },
+        relayUrl = relayUrl.ifEmpty { null },
+        relayUrls = relayUrls.ifEmpty { listOfNotNull(relayUrl).filter { it.isNotEmpty() } }
+    )
+}
 
 /**
  * Data class for Hashtag Statistics
@@ -48,7 +70,8 @@ data class HashtagStats(
     val topicCount: Int,
     val totalReplies: Int,
     val latestActivity: Long,
-    val topicIds: List<String> = emptyList()
+    val topicIds: List<String> = emptyList(),
+    val relayUrls: List<String> = emptyList()
 )
 
 /**
@@ -155,7 +178,7 @@ class TopicsRepository private constructor(context: Context) {
     }
 
     init {
-        relayStateMachine.registerKind11Handler { handleTopicEvent(it) }
+        relayStateMachine.registerKind11Handler { event, relayUrl -> handleTopicEvent(event, relayUrl) }
         loadCacheFromStorage()
         startPeriodicCacheSaving()
         startProfileUpdateCoalescer()
@@ -310,7 +333,7 @@ class TopicsRepository private constructor(context: Context) {
      * Handle incoming Kind 11 topic event from relay - with caching and pending-new-topics (like NotesRepository).
      * Topics with timestamp > cutoff go to pending until user refreshes.
      */
-    private fun handleTopicEvent(event: Event) {
+    private fun handleTopicEvent(event: Event, relayUrl: String = "") {
         try {
             if (event.kind == 11) {
                 if (!hasReceivedFirstEvent) {
@@ -321,16 +344,24 @@ class TopicsRepository private constructor(context: Context) {
                     Log.d(TAG, "🎉 First topic received, clearing loading state")
                 }
 
-                val relayTag = currentRelaySet.sorted().joinToString(",")
-                val topic = convertEventToTopicNote(event, relayTag)
+                val topic = convertEventToTopicNote(event, relayUrl)
 
                 if (isFollowFilterActive() && topic.author.id.lowercase() !in followFilter!!) return
 
                 topicsCache.put(topic.id, topic)
 
                 val currentTopics = _topics.value.toMutableMap()
-                if (currentTopics.containsKey(topic.id)) {
-                    Log.d(TAG, "⏭️  Skipped duplicate topic: ${topic.id}")
+                val existing = currentTopics[topic.id]
+                if (existing != null) {
+                    // Accumulate relay URL if this is a new relay for an existing topic
+                    if (relayUrl.isNotBlank() && relayUrl !in existing.relayUrls) {
+                        val updatedUrls = existing.relayUrls + relayUrl
+                        currentTopics[topic.id] = existing.copy(
+                            relayUrls = updatedUrls,
+                            relayUrl = updatedUrls.firstOrNull() ?: existing.relayUrl
+                        )
+                        _topics.value = currentTopics
+                    }
                     return
                 }
 
@@ -477,12 +508,14 @@ class TopicsRepository private constructor(context: Context) {
 
         // Build statistics
         val stats = hashtagMap.map { (hashtag, topicList) ->
+            val allRelayUrls = topicList.flatMap { it.relayUrls }.filter { it.isNotBlank() }.distinct()
             HashtagStats(
                 hashtag = hashtag,
                 topicCount = topicList.size,
                 totalReplies = topicList.sumOf { it.replyCount },
                 latestActivity = topicList.maxOfOrNull { it.timestamp } ?: 0L,
-                topicIds = topicList.map { it.id }
+                topicIds = topicList.map { it.id },
+                relayUrls = allRelayUrls
             )
         }.sortedByDescending { it.topicCount } // Sort by most topics
 

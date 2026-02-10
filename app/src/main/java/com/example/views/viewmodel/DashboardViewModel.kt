@@ -9,6 +9,8 @@ import com.example.views.data.NoteUpdate
 import com.example.views.data.UrlPreviewInfo
 import com.example.views.network.WebSocketClient
 import com.example.views.repository.ContactListRepository
+import com.example.views.data.LiveActivity
+import com.example.views.repository.LiveActivityRepository
 import com.example.views.repository.NotesRepository
 import com.example.views.relay.RelayConnectionStateMachine
 import com.example.views.relay.RelayEndpointStatus
@@ -53,10 +55,14 @@ data class DashboardUiState(
 class DashboardViewModel : ViewModel() {
     private val webSocketClient = WebSocketClient()
     private val notesRepository = NotesRepository.getInstance()
+    private val liveActivityRepository = LiveActivityRepository.getInstance()
     private val urlPreviewManager = UrlPreviewManager(UrlPreviewService(), UrlPreviewCache)
 
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+
+    /** NIP-53 live activities with status=LIVE for the chips row. */
+    val liveActivities: StateFlow<List<LiveActivity>> = liveActivityRepository.liveActivities
 
     companion object {
         private const val TAG = "DashboardViewModel"

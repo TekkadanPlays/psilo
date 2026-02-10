@@ -34,6 +34,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.consumeWindowInsets
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -48,6 +49,7 @@ import com.example.views.ui.components.BottomNavDestinations
 import com.example.views.ui.components.ModernSearchBar
 import com.example.views.ui.components.GlobalSidebar
 import com.example.views.ui.components.NoteCard
+import com.example.views.ui.components.LiveActivityRow
 import com.example.views.ui.components.LoadingAnimation
 import com.example.views.ui.components.NoteCard
 import com.example.views.viewmodel.DashboardViewModel
@@ -112,6 +114,7 @@ fun DashboardScreen(
     val zappedAmountByNoteId by accountStateViewModel.zappedAmountByNoteId.collectAsState()
     val replyCountByNoteId by com.example.views.repository.ReplyCountCache.replyCountByNoteId.collectAsState()
     val countsByNoteId by com.example.views.repository.NoteCountsRepository.countsByNoteId.collectAsState()
+    val liveActivities by viewModel.liveActivities.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -599,8 +602,8 @@ fun DashboardScreen(
                     Box(modifier = Modifier.offset(y = fabBottomBarOffset)) {
                         FloatingActionButton(
                             onClick = { onNavigateTo("compose") },
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = "Compose note")
                         }
@@ -649,41 +652,57 @@ fun DashboardScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(0.dp)
+                    contentPadding = PaddingValues(top = 4.dp)
                 ) {
-                    // New notes counter (tap to load) — connection status lives in sidebar now
+                    // NIP-53 Live Activity chips row (above feed, only when streams are live)
+                    if (liveActivities.isNotEmpty()) {
+                        item(key = "live_activities_row") {
+                            LiveActivityRow(
+                                liveActivities = liveActivities,
+                                onActivityClick = { activity ->
+                                    val addressableId = android.net.Uri.encode("${activity.hostPubkey}:${activity.dTag}")
+                                    onNavigateTo("live_stream/$addressableId")
+                                }
+                            )
+                        }
+                    }
+
+                    // New notes counter (tap to load) — below live activities, non-sticky
                     run {
                         val newCount = if (homeFeedState.isFollowing) uiState.newNotesCountFollowing else uiState.newNotesCountAll
                         val otherCount = if (homeFeedState.isFollowing) uiState.newNotesCountAll else uiState.newNotesCountFollowing
                         if (newCount > 0) {
-                            item(key = "new_notes_header") {
+                            item(key = "new_notes_counter") {
                                 Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            scope.launch {
+                                                viewModel.applyPendingNotes()
+                                                listState.animateScrollToItem(0)
+                                            }
+                                        },
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable {
-                                                scope.launch {
-                                                    viewModel.applyPendingNotes()
-                                                    listState.animateScrollToItem(0)
-                                                }
-                                            }
                                             .padding(horizontal = 16.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
                                     ) {
                                         Text(
-                                            text = "$newCount new note${if (newCount == 1) "" else "s"}",
-                                            style = MaterialTheme.typography.bodyMedium,
+                                            text = "\u2191 $newCount new note${if (newCount == 1) "" else "s"}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                         if (otherCount > 0) {
-                                            Spacer(Modifier.width(8.dp))
+                                            Spacer(Modifier.width(6.dp))
                                             Text(
                                                 text = "($otherCount in ${if (homeFeedState.isFollowing) "All" else "Following"})",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                             )
                                         }
                                     }
@@ -691,6 +710,7 @@ fun DashboardScreen(
                             }
                         }
                     }
+
                     // Logged in but notes still loading (first load): full-screen centered expressive spinner
                     // Spinner stays until notes actually appear in the feed (not just counted in background)
                     if (sortedNotes.isEmpty()) {

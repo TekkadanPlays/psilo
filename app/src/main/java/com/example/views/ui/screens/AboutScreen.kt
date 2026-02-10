@@ -20,10 +20,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.Color
 import com.example.views.data.Author
 import com.example.views.repository.ProfileMetadataCache
 import com.example.views.ribbit.BuildConfig
 import com.example.views.ui.components.ProfilePicture
+import com.example.views.ui.components.SupportRibbitZapDialog
 import com.vitorpamplona.quartz.nip19Bech32.Nip19Parser
 import com.vitorpamplona.quartz.nip19Bech32.entities.NPub
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,7 @@ private val FALLBACK_CACHE_RELAYS = listOf(
 @Composable
 fun AboutScreen(
     onBackClick: () -> Unit,
+    onProfileClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -162,7 +165,7 @@ fun AboutScreen(
 
             // ── Developer profile section ──
             Text(
-                text = "UI made with \uD83D\uDC9A by",
+                text = "made with \uD83D\uDC9A by",
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Medium
                 ),
@@ -245,21 +248,49 @@ fun AboutScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Link
-            TextButton(
+            // View profile button
+            Button(
                 onClick = {
-                    uriHandler.openUri("https://njump.me/$DEV_NPUB")
-                }
+                    DEV_HEX_PUBKEY?.let { onProfileClick(it) }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.fillMaxWidth(0.7f)
             ) {
-                Text(
-                    text = "View on njump.me",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.Medium
-                    ),
-                    color = MaterialTheme.colorScheme.primary
+                Icon(
+                    imageVector = Icons.Filled.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("View profile", fontWeight = FontWeight.Medium)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Support Ribbit button
+            var showSupportZapDialog by remember { mutableStateOf(false) }
+            Button(
+                onClick = { showSupportZapDialog = true },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFE57373)
+                ),
+                modifier = Modifier.fillMaxWidth(0.7f)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Bolt,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Support Ribbit", fontWeight = FontWeight.Medium)
+            }
+
+            if (showSupportZapDialog) {
+                SupportRibbitZapDialog(onDismiss = { showSupportZapDialog = false })
             }
 
             Spacer(modifier = Modifier.height(48.dp))

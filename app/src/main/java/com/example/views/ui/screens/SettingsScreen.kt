@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.example.views.ribbit.BuildConfig
 import com.example.views.repository.DebugEventStatsSnapshot
 import com.example.views.repository.NotesRepository
+import com.example.views.ui.components.SupportRibbitZapDialog
 import androidx.compose.runtime.collectAsState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +60,8 @@ fun SettingsScreen(
             )
         }
     ) { paddingValues ->
+        var showSupportZapDialog by remember { mutableStateOf(false) }
+
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -78,7 +81,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
             )
 
-            SettingsItem(icon = Icons.Outlined.FavoriteBorder, title = "Support Ribbit", onClick = { /* TODO */ }, iconTint = Color(0xFFE57373))
+            SettingsItem(icon = Icons.Outlined.FavoriteBorder, title = "Support Ribbit", onClick = { showSupportZapDialog = true }, iconTint = Color(0xFFE57373))
             val context = LocalContext.current
             SettingsItem(
                 icon = Icons.Outlined.Lightbulb,
@@ -116,8 +119,14 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+
+        if (showSupportZapDialog) {
+            SupportRibbitZapDialog(onDismiss = { showSupportZapDialog = false })
+        }
     }
 }
+
+// SupportRibbitZapDialog is in com.example.views.ui.components.SupportRibbitZapDialog
 
 @Composable
 private fun DebugEventStatsCard() {

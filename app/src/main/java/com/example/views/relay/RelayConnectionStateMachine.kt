@@ -5,7 +5,9 @@ import com.tinder.StateMachine
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.relay.client.NostrClient
 import com.vitorpamplona.quartz.nip01Core.relay.client.NostrClientSubscription
+import com.vitorpamplona.quartz.nip01Core.relay.client.listeners.IRelayClientListener
 import com.vitorpamplona.quartz.nip01Core.relay.client.reqs.IRequestListener
+import com.vitorpamplona.quartz.nip01Core.relay.client.single.IRelayClient
 import com.vitorpamplona.quartz.nip01Core.relay.filters.Filter
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.NormalizedRelayUrl
 import com.vitorpamplona.quartz.nip01Core.relay.sockets.okhttp.BasicOkHttpWebSocket
@@ -137,6 +139,41 @@ class RelayConnectionStateMachine {
     private val okHttpClient = OkHttpClient.Builder().build()
     private val socketBuilder = BasicOkHttpWebSocket.Builder { _ -> okHttpClient }
     val nostrClient: NostrClient = NostrClient(socketBuilder, scope)
+
+    init {
+        // Register connection listener to track per-relay status from actual WebSocket events
+        nostrClient.subscribe(object : IRelayClientListener {
+            override fun onConnecting(relay: IRelayClient) {
+                val url = relay.url.url
+                val current = _perRelayState.value
+                // Only set Connecting if relay is in our subscription set (avoid noise from temp subs)
+                if (url in current) {
+                    _perRelayState.value = current + (url to RelayEndpointStatus.Connecting)
+                }
+            }
+
+            override fun onConnected(relay: IRelayClient, pingMillis: Int, compressed: Boolean) {
+                val url = relay.url.url
+                _perRelayState.value = _perRelayState.value + (url to RelayEndpointStatus.Connected)
+            }
+
+            override fun onDisconnected(relay: IRelayClient) {
+                val url = relay.url.url
+                val current = _perRelayState.value
+                if (url in current) {
+                    _perRelayState.value = current + (url to RelayEndpointStatus.Connecting)
+                }
+            }
+
+            override fun onCannotConnect(relay: IRelayClient, errorMessage: String) {
+                val url = relay.url.url
+                val current = _perRelayState.value
+                if (url in current) {
+                    _perRelayState.value = current + (url to RelayEndpointStatus.Failed)
+                }
+            }
+        })
+    }
 
     private var mainFeedSubscription: NostrClientSubscription? = null
     private var currentSubId: String? = null
@@ -371,12 +408,20 @@ class RelayConnectionStateMachine {
                         limit = GLOBAL_FEED_LIMIT,
                         since = sevenDaysAgo
                     )
+                    // Kind-6 repost filter: same authors as kind-1 when Following, else global
+                    val filterKind6 = if (kind1Filter != null) {
+                        Filter(kinds = listOf(6), authors = kind1Filter.authors, limit = kind1Filter.limit ?: GLOBAL_FEED_LIMIT, since = sevenDaysAgo)
+                    } else {
+                        Filter(kinds = listOf(6), limit = GLOBAL_FEED_LIMIT, since = sevenDaysAgo)
+                    }
                     val filterKind11 = Filter(kinds = listOf(11), limit = 100, since = sevenDaysAgo)
+                    val filterKind1011 = Filter(kinds = listOf(1011), limit = 200, since = sevenDaysAgo)
+                    val filterKind30311 = Filter(kinds = listOf(30311), limit = 50)
                     // Counts (kind-7, kind-9735) are now handled by NoteCountsRepository via
                     // a dedicated temporary subscription to NIP-65 indexer relays. We no longer
                     // piggyback counts filters on the main feed subscription.
                     val countsIds = countsNoteIds?.takeIf { it.isNotEmpty() } ?: emptySet()
-                    val allFilters = listOf(filterKind1, filterKind11)
+                    val allFilters = listOf(filterKind1, filterKind6, filterKind11, filterKind1011, filterKind30311)
                     relayFilters = relayUrls.associate { NormalizedRelayUrl(it) to allFilters }
                     currentSubId = RandomInstance.randomChars(10)
                     val subId = currentSubId!!
@@ -387,6 +432,7 @@ class RelayConnectionStateMachine {
                             relay: NormalizedRelayUrl,
                             forFilters: List<Filter>?,
                         ) {
+                            markEventReceived()
                             _perRelayState.value = _perRelayState.value + (relay.url to RelayEndpointStatus.Connected)
                             when (event.kind) {
                                 1 -> {
@@ -398,7 +444,11 @@ class RelayConnectionStateMachine {
                                         }
                                     }
                                 }
-                                11 -> onKind11?.invoke(event)
+                                6 -> onKind6WithRelay?.invoke(event, relay.url)
+                                11 -> onKind11?.invoke(event, relay.url)
+                                1011 -> onKind1011?.invoke(event)
+                                30073 -> onKind30073?.invoke(event)
+                                30311 -> onKind30311?.invoke(event, relay.url)
                                 7, 9735 -> com.example.views.repository.NoteCountsRepository.onCountsEvent(event)
                                 else -> { }
                             }
@@ -428,18 +478,73 @@ class RelayConnectionStateMachine {
     @Volatile private var currentKind1Filter: Filter? = null
     @Volatile private var currentCountsNoteIds: Set<String> = emptySet()
 
+    // --- Keepalive health check ---
+    /** Timestamp of last event received from any relay. Used by keepalive to detect stale connections. */
+    @Volatile private var lastEventReceivedAt: Long = System.currentTimeMillis()
+    private var keepaliveJob: kotlinx.coroutines.Job? = null
+    private val KEEPALIVE_INTERVAL_MS = 90_000L  // Check every 90 seconds
+    private val STALE_THRESHOLD_MS = 180_000L    // Consider stale if no events in 3 minutes
+
+    /** Call when any event is received to reset the keepalive timer. */
+    fun markEventReceived() {
+        lastEventReceivedAt = System.currentTimeMillis()
+    }
+
+    /** Start periodic keepalive that detects stale connections and forces reconnect. */
+    fun startKeepalive() {
+        keepaliveJob?.cancel()
+        keepaliveJob = scope.launch {
+            while (true) {
+                delay(KEEPALIVE_INTERVAL_MS)
+                val elapsed = System.currentTimeMillis() - lastEventReceivedAt
+                val currentState = _state.value
+                val hasRelays = currentSubscriptionRelayUrls.isNotEmpty()
+                if (elapsed > STALE_THRESHOLD_MS && hasRelays && currentState is RelayState.Subscribed) {
+                    Log.w(TAG, "Keepalive: no events in ${elapsed / 1000}s, forcing reconnect to ${currentSubscriptionRelayUrls.size} relays")
+                    requestReconnectOnResume()
+                }
+            }
+        }
+    }
+
+    /** Stop the keepalive health check (e.g. when user logs out). */
+    fun stopKeepalive() {
+        keepaliveJob?.cancel()
+        keepaliveJob = null
+    }
+
     /** Current kind-1 filter (e.g. authors for Following). Use when setting subscription from Topics to preserve feed mode. */
     fun getCurrentKind1Filter(): Filter? = currentKind1Filter
 
     @Volatile private var onKind1WithRelay: ((Event, String) -> Unit)? = null
-    @Volatile private var onKind11: ((Event) -> Unit)? = null
+    @Volatile private var onKind6WithRelay: ((Event, String) -> Unit)? = null
+    @Volatile private var onKind11: ((Event, String) -> Unit)? = null
+    @Volatile private var onKind1011: ((Event) -> Unit)? = null
+    @Volatile private var onKind30073: ((Event) -> Unit)? = null
+    @Volatile private var onKind30311: ((Event, String) -> Unit)? = null
 
     fun registerKind1Handler(handler: (Event, String) -> Unit) {
         onKind1WithRelay = handler
     }
 
-    fun registerKind11Handler(handler: (Event) -> Unit) {
+    fun registerKind6Handler(handler: (Event, String) -> Unit) {
+        onKind6WithRelay = handler
+    }
+
+    fun registerKind11Handler(handler: (Event, String) -> Unit) {
         onKind11 = handler
+    }
+
+    fun registerKind1011Handler(handler: (Event) -> Unit) {
+        onKind1011 = handler
+    }
+
+    fun registerKind30073Handler(handler: (Event) -> Unit) {
+        onKind30073 = handler
+    }
+
+    fun registerKind30311Handler(handler: (Event, String) -> Unit) {
+        onKind30311 = handler
     }
 
     private fun executeDisconnect() {

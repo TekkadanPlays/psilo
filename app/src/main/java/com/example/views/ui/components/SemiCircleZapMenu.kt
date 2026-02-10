@@ -433,25 +433,26 @@ fun ZapCustomDialog(
 ) {
     val context = LocalContext.current
     val nwcConfig = remember { NwcConfigRepository.getConfig(context) }
-    var amountText by remember { mutableStateOf("21") }
+    var selectedAmount by remember { mutableStateOf<Long?>(null) }
+    var customAmount by remember { mutableStateOf("") }
+    var showCustomInput by remember { mutableStateOf(false) }
     var selectedZapType by remember { mutableStateOf(nwcConfig.zapType()) }
     var message by remember { mutableStateOf("") }
 
     val zapTypeOptions = listOf(
-        Triple(ZapType.PUBLIC, "Public", "Everyone can see your zap on the note."),
+        Triple(ZapType.PUBLIC, "Public", "Everyone can see your zap."),
         Triple(ZapType.PRIVATE, "Private", "Only the recipient knows who zapped."),
         Triple(ZapType.ANONYMOUS, "Anonymous", "No one knows who sent the zap."),
-        Triple(ZapType.NONZAP, "Non-Zap", "Regular Lightning payment, no zap receipt created.")
+        Triple(ZapType.NONZAP, "Non-Zap", "Direct payment, no zap receipt.")
     )
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight(),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp
+                .padding(16.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
@@ -460,72 +461,123 @@ fun ZapCustomDialog(
             ) {
                 // Header
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFFFA500)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Bolt,
-                            contentDescription = "Zap",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
                     Text(
-                        text = "Custom Zap",
+                        text = "⚡ Custom Zap",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Bolt,
+                        contentDescription = null,
+                        tint = Color(0xFFFFA500)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Amount input
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Amount (sats)") },
-                    placeholder = { Text("21") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Bolt,
-                            contentDescription = null,
-                            tint = Color(0xFFFFA500),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                // Amount grid
+                Text(
+                    text = "Choose amount",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(modifier = Modifier.height(16.dp))
+                val amounts = listOf(21L, 100L, 500L, 1000L, 5000L, 10000L)
+                amounts.chunked(3).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        row.forEach { amount ->
+                            Surface(
+                                onClick = {
+                                    selectedAmount = amount
+                                    showCustomInput = false
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                color = if (selectedAmount == amount) Color(0xFFFFA500).copy(alpha = 0.2f)
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                                border = if (selectedAmount == amount) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFA500)) else null
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Text(
+                                        text = "⚡ ${com.example.views.utils.ZapUtils.formatZapAmount(amount)}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (selectedAmount == amount) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (selectedAmount == amount) Color(0xFFFFA500) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Custom amount
+                OutlinedButton(
+                    onClick = {
+                        showCustomInput = !showCustomInput
+                        selectedAmount = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (showCustomInput) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                    )
+                ) {
+                    Text("Custom amount")
+                }
+
+                if (showCustomInput) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = customAmount,
+                        onValueChange = {
+                            if (it.isEmpty() || it.all { c -> c.isDigit() }) {
+                                customAmount = it
+                                selectedAmount = it.toLongOrNull()
+                            }
+                        },
+                        label = { Text("Amount in sats") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        trailingIcon = { Text("sats", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Zap type selector
                 Text(
-                    text = "Zap Type",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    text = "Zap type",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 zapTypeOptions.forEach { (type, label, description) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { selectedZapType = type }
-                            .padding(vertical = 6.dp),
+                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = selectedZapType == type,
-                            onClick = { selectedZapType = type }
+                            onClick = { selectedZapType = type },
+                            modifier = Modifier.size(20.dp),
+                            colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFFA500))
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
@@ -536,26 +588,26 @@ fun ZapCustomDialog(
                             )
                             Text(
                                 text = description,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Message field
                 OutlinedTextField(
                     value = message,
                     onValueChange = { message = it },
                     label = { Text("Message (optional)") },
-                    placeholder = { Text("Zap!") },
+                    placeholder = { Text("Zap! ⚡") },
                     modifier = Modifier.fillMaxWidth(),
-                    maxLines = 3
+                    maxLines = 2
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Action buttons
                 Row(
@@ -570,7 +622,7 @@ fun ZapCustomDialog(
                     }
                     Button(
                         onClick = {
-                            val amount = amountText.toLongOrNull()
+                            val amount = selectedAmount
                             if (amount != null && amount > 0) {
                                 // Save the selected zap type as the new default
                                 NwcConfigRepository.saveConfig(
@@ -581,15 +633,16 @@ fun ZapCustomDialog(
                             }
                         },
                         modifier = Modifier.weight(1f),
-                        enabled = (amountText.toLongOrNull() ?: 0L) > 0
+                        enabled = selectedAmount != null && (selectedAmount ?: 0) > 0,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA500))
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Bolt,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Zap")
+                        Text("Zap ${selectedAmount?.let { com.example.views.utils.ZapUtils.formatZapAmount(it) } ?: ""}")
                     }
                 }
             }

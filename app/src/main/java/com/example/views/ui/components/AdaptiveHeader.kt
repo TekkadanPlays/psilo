@@ -72,6 +72,9 @@ fun AdaptiveHeader(
     onTopicsFollowingFilterChange: ((Boolean) -> Unit)? = null,
     topicsSortOrder: TopicsSortOrder = TopicsSortOrder.Latest,
     onTopicsSortOrderChange: ((TopicsSortOrder) -> Unit)? = null,
+    // Topics favorites filter (kind:30073 anchor subscriptions)
+    isTopicsFavoritesFilter: Boolean = false,
+    onTopicsFavoritesFilterChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -389,7 +392,7 @@ fun AdaptiveHeader(
                                 label = { Text("Popular") }
                             )
                         }
-                        // Topics: Latest | Popular (Favorites removed — unused)
+                        // Topics: Latest | Popular | Favorites star
                         if (onTopicsSortOrderChange != null) {
                             FilterChip(
                                 selected = topicsSortOrder == TopicsSortOrder.Latest,
@@ -401,6 +404,20 @@ fun AdaptiveHeader(
                                 onClick = { onTopicsSortOrderChange(TopicsSortOrder.Popular) },
                                 label = { Text("Popular") }
                             )
+                        }
+                        // Favorites star toggle (kind:30073)
+                        if (onTopicsFavoritesFilterChange != null) {
+                            IconButton(
+                                onClick = { onTopicsFavoritesFilterChange(!isTopicsFavoritesFilter) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isTopicsFavoritesFilter) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                    contentDescription = if (isTopicsFavoritesFilter) "Show all" else "Show favorites",
+                                    tint = if (isTopicsFavoritesFilter) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                         if (onEditFeedClick != null) {
                             Spacer(modifier = Modifier.weight(1f))
