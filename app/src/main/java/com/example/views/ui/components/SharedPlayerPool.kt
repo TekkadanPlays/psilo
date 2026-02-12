@@ -19,9 +19,13 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object SharedPlayerPool {
 
+    /** Max concurrent ExoPlayer instances to prevent exhausting codec resources. */
+    private const val MAX_POOL_SIZE = 3
+
     private data class Entry(
         val player: ExoPlayer,
-        var ownerCount: Int = 0
+        var ownerCount: Int = 0,
+        var lastAccessTime: Long = System.nanoTime()
     )
 
     private val pool = ConcurrentHashMap<String, Entry>()
@@ -29,17 +33,38 @@ object SharedPlayerPool {
     /**
      * Acquire a player for [url]. If one already exists in the pool, return it.
      * Otherwise create a new one. Increments the owner count.
+     * When the pool is full, the least-recently-used unowned player is evicted.
      */
     fun acquire(context: Context, url: String): ExoPlayer {
-        val entry = pool.getOrPut(url) {
-            val player = ExoPlayer.Builder(context.applicationContext).build().apply {
-                setMediaItem(MediaItem.fromUri(url))
-                prepare()
-                playWhenReady = false
-            }
-            Entry(player, 0)
+        val existing = pool[url]
+        if (existing != null) {
+            existing.ownerCount++
+            existing.lastAccessTime = System.nanoTime()
+            return existing.player
         }
-        entry.ownerCount++
+
+        // Evict LRU unowned entries if at capacity
+        while (pool.size >= MAX_POOL_SIZE) {
+            val lru = pool.entries
+                .filter { it.value.ownerCount <= 0 }
+                .minByOrNull { it.value.lastAccessTime }
+            if (lru != null) {
+                pool.remove(lru.key)
+                VideoPositionCache.set(lru.key, lru.value.player.currentPosition)
+                lru.value.player.release()
+            } else {
+                // All entries are owned — allow over-limit rather than deadlock
+                break
+            }
+        }
+
+        val player = ExoPlayer.Builder(context.applicationContext).build().apply {
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+            playWhenReady = false
+        }
+        val entry = Entry(player, 1)
+        pool[url] = entry
         return entry.player
     }
 

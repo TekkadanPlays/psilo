@@ -109,6 +109,14 @@ private fun FeedVideoPlayer(
             if (cached > 0) p.seekTo(cached)
             p.volume = 0f
             p.playWhenReady = true
+            // Report video dimensions to aspect ratio cache once known
+            p.addListener(object : androidx.media3.common.Player.Listener {
+                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                    if (videoSize.width > 0 && videoSize.height > 0) {
+                        com.example.views.utils.MediaAspectRatioCache.add(url, videoSize.width, videoSize.height)
+                    }
+                }
+            })
             player = p
         }
     }
@@ -324,35 +332,35 @@ private fun VideoControlsPill(
         modifier = Modifier
             .padding(8.dp)
             .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         // Play/Pause
-        IconButton(onClick = onPlayPauseToggle, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = onPlayPauseToggle, modifier = Modifier.size(40.dp)) {
             Icon(
                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                 contentDescription = if (isPlaying) "Pause" else "Play",
                 tint = Color.White,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
         // Mute toggle
-        IconButton(onClick = onMuteToggle, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = onMuteToggle, modifier = Modifier.size(40.dp)) {
             Icon(
                 imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                 contentDescription = if (isMuted) "Unmute" else "Mute",
                 tint = Color.White,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
         // Fullscreen / Exit fullscreen
-        IconButton(onClick = onScreenToggle, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = onScreenToggle, modifier = Modifier.size(40.dp)) {
             Icon(
                 imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                 contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
                 tint = Color.White,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }

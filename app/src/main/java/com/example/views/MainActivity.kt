@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity(), ComponentCallbacks2 {
                 .diskCache {
                     coil.disk.DiskCache.Builder()
                         .directory(cacheDir.resolve("image_cache"))
-                        .maxSizeBytes(50L * 1024 * 1024) // 50 MB disk cache
+                        .maxSizeBytes(150L * 1024 * 1024) // 150 MB disk cache
                         .build()
                 }
                 .build()

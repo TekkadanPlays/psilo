@@ -662,6 +662,12 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                // Track which note keys are currently visible so off-screen videos can pause
+                val visibleKeys by remember {
+                    derivedStateOf {
+                        listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet()
+                    }
+                }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -838,6 +844,7 @@ fun DashboardScreen(
                             showHashtagsSection = false,
                             initialMediaPage = mediaPageForNote(note.id),
                             onMediaPageChanged = { page -> onMediaPageChanged(note.id, page) },
+                            isVisible = note.id in visibleKeys,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

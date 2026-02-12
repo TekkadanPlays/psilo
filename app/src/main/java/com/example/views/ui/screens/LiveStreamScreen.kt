@@ -156,9 +156,10 @@ fun LiveStreamScreen(
         return
     }
 
-    // Kill existing PiP if opening a *different* stream (prevents double-play)
-    LaunchedEffect(decodedId) {
-        if (PipStreamManager.isActive && !PipStreamManager.isActiveFor(decodedId)) {
+    // Kill existing PiP only if opening a *different* stream that will actually play
+    val hasPlayableStream = activity.streamingUrl != null || (activity.status == LiveActivityStatus.LIVE && activity.recordingUrl != null)
+    LaunchedEffect(decodedId, hasPlayableStream) {
+        if (hasPlayableStream && PipStreamManager.isActive && !PipStreamManager.isActiveFor(decodedId)) {
             PipStreamManager.kill()
         }
     }
@@ -317,15 +318,7 @@ fun LiveStreamScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                         }
                     },
-                    actions = {
-                        if (activity.relayUrls.isNotEmpty()) {
-                            RelayOrbs(
-                                relayUrls = activity.relayUrls,
-                                onRelayClick = { url -> onRelayNavigate(url) },
-                                modifier = Modifier.padding(end = 12.dp)
-                            )
-                        }
-                    },
+                    actions = { },
                     windowInsets = WindowInsets(0),
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface
@@ -410,6 +403,12 @@ fun LiveStreamScreen(
                             }
                         }
                     }
+                }
+                if (activity.relayUrls.isNotEmpty()) {
+                    RelayOrbs(
+                        relayUrls = activity.relayUrls,
+                        onRelayClick = { url -> onRelayNavigate(url) }
+                    )
                 }
             }
 

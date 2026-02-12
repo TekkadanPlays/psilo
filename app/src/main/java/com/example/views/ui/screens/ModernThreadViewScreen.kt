@@ -461,7 +461,10 @@ fun ModernThreadViewScreen(
                         onComment = effectiveOnComment,
                         onReact = onReact,
                         onProfileClick = onProfileClick,
-                        onNoteClick = onNoteClick,
+                        onNoteClick = { clickedNote ->
+                            // Prevent opening a duplicate thread of the current root note
+                            if (clickedNote.id != note.id) onNoteClick(clickedNote)
+                        },
                         onImageTap = onImageTap,
                         onOpenImageViewer = onOpenImageViewer,
                         onVideoClick = onVideoClick,

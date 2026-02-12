@@ -147,6 +147,8 @@ fun NoteCard(
     initialMediaPage: Int = 0,
     /** Called when user swipes the media album to a different page. */
     onMediaPageChanged: (Int) -> Unit = {},
+    /** Whether this card is currently visible on screen; off-screen cards pause video playback. */
+    isVisible: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var isZapMenuExpanded by remember { mutableStateOf(false) }
@@ -593,11 +595,11 @@ fun NoteCard(
                         val containerModifier = if (containerRatio != null) {
                             Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(containerRatio!!.coerceIn(0.4f, 3.0f))
+                                .aspectRatio(containerRatio!!.coerceIn(0.3f, 3.0f))
                         } else {
                             Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 200.dp, max = 400.dp)
+                                .heightIn(min = 200.dp, max = 550.dp)
                         }
                         Box(modifier = containerModifier) {
                             HorizontalPager(
@@ -629,7 +631,7 @@ fun NoteCard(
                                         InlineVideoPlayer(
                                             url = url,
                                             modifier = Modifier.fillMaxSize(),
-                                            isVisible = isCurrentPage,
+                                            isVisible = isCurrentPage && isVisible,
                                             onFullscreenClick = {
                                                 val fullIndex = groupStartIndex + page
                                                 onVideoClick(allMediaUrls, fullIndex)
