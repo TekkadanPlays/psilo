@@ -104,7 +104,8 @@ fun DashboardScreen(
     initialTopAppBarState: TopAppBarState? = null,
     isDashboardVisible: Boolean = true,
     onQrClick: () -> Unit = {},
-    onSidebarSettingsClick: () -> Unit = {},
+    onSidebarRelayHealthClick: () -> Unit = {},
+    onSidebarRelayDiscoveryClick: () -> Unit = {},
     onRelayClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -411,7 +412,8 @@ fun DashboardScreen(
         connectedRelayCount = connectedRelayCount,
         subscribedRelayCount = subscribedRelayCount,
         onQrClick = onQrClick,
-        onSettingsClick = onSidebarSettingsClick,
+        onRelayHealthClick = onSidebarRelayHealthClick,
+        onRelayDiscoveryClick = onSidebarRelayDiscoveryClick,
         onItemClick = { itemId ->
             when {
                 itemId == "global" -> {

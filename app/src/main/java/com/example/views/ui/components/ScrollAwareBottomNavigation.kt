@@ -5,6 +5,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -42,7 +43,7 @@ fun ScrollAwareBottomNavigationBar(
         modifier = modifier
     ) {
         NavigationBar(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(80.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
             windowInsets = NavigationBarDefaults.windowInsets
@@ -76,7 +77,6 @@ fun ScrollAwareBottomNavigationBar(
                             )
                         }
                     },
-                    label = { Text(destination.label) },
                     selected = currentDestination == destination.route,
                     onClick = { onDestinationClick(destination.route) },
                     colors = NavigationBarItemDefaults.colors(

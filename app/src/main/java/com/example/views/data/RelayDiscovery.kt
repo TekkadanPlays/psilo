@@ -6,6 +6,8 @@ import androidx.compose.runtime.Immutable
  * NIP-66 Relay Discovery Event (kind 30166).
  * Published by relay monitors to describe relay characteristics.
  * The `T` tag provides the relay type from the official nomenclature.
+ * The `l` tags provide host metadata (geocode, ISP, IP, SSL).
+ * The `content` field contains the NIP-11 JSON document.
  */
 @Immutable
 data class RelayDiscoveryEvent(
@@ -21,7 +23,12 @@ data class RelayDiscoveryEvent(
     val rttWrite: Int? = null,
     val topics: List<String> = emptyList(),
     val geohash: String? = null,
-    val nip11Content: String? = null
+    val nip11Content: String? = null,
+    // l-tag metadata from monitors
+    val countryCode: String? = null,
+    val isp: String? = null,
+    val asNumber: String? = null,
+    val asName: String? = null
 )
 
 /**
@@ -68,6 +75,7 @@ enum class RelayType(val tag: String, val displayName: String) {
 /**
  * Aggregated relay discovery info combining data from one or more monitors.
  * This is the cached, ready-to-use form for the UI.
+ * Fields mirror nostr.watch's Nip66CheckEvent for feature parity.
  */
 @Immutable
 data class DiscoveredRelay(
@@ -82,11 +90,38 @@ data class DiscoveredRelay(
     val topics: Set<String> = emptySet(),
     val monitorCount: Int = 0,
     val lastSeen: Long = 0,
-    val nip11Json: String? = null
+    val nip11Json: String? = null,
+    // NIP-11 parsed fields (from event content JSON)
+    val software: String? = null,
+    val version: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val icon: String? = null,
+    val banner: String? = null,
+    val paymentRequired: Boolean = false,
+    val authRequired: Boolean = false,
+    val restrictedWrites: Boolean = false,
+    val hasNip11: Boolean = false,
+    val operatorPubkey: String? = null,
+    // Host metadata from l-tags
+    val countryCode: String? = null,
+    val isp: String? = null,
+    // Monitor tracking
+    val seenByMonitors: Set<String> = emptySet()
 ) {
     val isSearch: Boolean get() = RelayType.SEARCH in types
     val isOutbox: Boolean get() = RelayType.PUBLIC_OUTBOX in types
     val isInbox: Boolean get() = RelayType.PUBLIC_INBOX in types
     val isPrivateInbox: Boolean get() = RelayType.PRIVATE_INBOX in types
     val isDirectory: Boolean get() = RelayType.DIRECTORY in types
+
+    /** Readable software name (strip git URLs, lowercase, cap length, filter spam) */
+    val softwareShort: String? get() = software?.let { sw ->
+        val cleaned = sw.removePrefix("git+").removePrefix("https://github.com/")
+            .removePrefix("http://").removeSuffix(".git")
+            .substringAfterLast("/").lowercase().trim()
+        // Filter out spam: if cleaned name is still absurdly long, discard it
+        if (cleaned.isBlank() || cleaned.length > 40) null
+        else cleaned.take(30)
+    }
 }

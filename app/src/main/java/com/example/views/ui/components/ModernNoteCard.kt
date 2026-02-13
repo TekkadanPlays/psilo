@@ -231,7 +231,6 @@ private fun NoteCardContent(
                         )
                     )
                 }
-                RelayOrbs(relayUrls = note.displayRelayUrls(), onRelayClick = onRelayClick)
             }
 
             Spacer(modifier = Modifier.height(4.dp))

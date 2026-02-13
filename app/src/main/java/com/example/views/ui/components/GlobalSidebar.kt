@@ -9,8 +9,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.HealthAndSafety
 import androidx.compose.material.icons.outlined.QrCode2
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,7 +40,8 @@ fun GlobalSidebar(
     onItemClick: (String) -> Unit,
     onToggleCategory: (String) -> Unit = {},
     onQrClick: () -> Unit = {},
-    onSettingsClick: () -> Unit = {},
+    onRelayHealthClick: () -> Unit = {},
+    onRelayDiscoveryClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -60,7 +62,8 @@ fun GlobalSidebar(
                     onItemClick = onItemClick,
                     onToggleCategory = onToggleCategory,
                     onQrClick = onQrClick,
-                    onSettingsClick = onSettingsClick,
+                    onRelayHealthClick = onRelayHealthClick,
+                    onRelayDiscoveryClick = onRelayDiscoveryClick,
                     onClose = {
                         scope.launch {
                             drawerState.close()
@@ -87,7 +90,8 @@ private fun DrawerContent(
     onItemClick: (String) -> Unit,
     onToggleCategory: (String) -> Unit,
     onQrClick: () -> Unit = {},
-    onSettingsClick: () -> Unit = {},
+    onRelayHealthClick: () -> Unit = {},
+    onRelayDiscoveryClick: () -> Unit = {},
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -134,14 +138,26 @@ private fun DrawerContent(
             }
             IconButton(
                 onClick = {
-                    onSettingsClick()
+                    onRelayHealthClick()
                     onClose()
                 },
                 modifier = Modifier.size(40.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings"
+                    imageVector = Icons.Outlined.HealthAndSafety,
+                    contentDescription = "Relay Health"
+                )
+            }
+            IconButton(
+                onClick = {
+                    onRelayDiscoveryClick()
+                    onClose()
+                },
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.TravelExplore,
+                    contentDescription = "Discover Relays"
                 )
             }
         }

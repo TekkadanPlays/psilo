@@ -8,10 +8,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,26 +26,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.example.views.cache.Nip11CacheManager
 import com.example.views.data.DiscoveredRelay
 import com.example.views.data.RelayType
 import com.example.views.repository.Nip66RelayDiscoveryRepository
 
 /**
- * NIP-66 Relay Discovery screen. Displays relays discovered from relay monitors
- * (kind 30166 events), categorized by their `T` tag relay type. Users can browse
- * relays by type, see latency data, supported NIPs, and add relays to their config.
+ * NIP-66 Relay Discovery screen with multi-dimensional filtering.
+ * Mirrors nostr.watch capabilities: filter by type, software, country,
+ * supported NIPs, payment/auth requirements, and text search.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,58 +58,81 @@ fun RelayDiscoveryScreen(
     val discoveredRelays by Nip66RelayDiscoveryRepository.discoveredRelays.collectAsState()
     val isLoading by Nip66RelayDiscoveryRepository.isLoading.collectAsState()
     val hasFetched by Nip66RelayDiscoveryRepository.hasFetched.collectAsState()
-
     val context = LocalContext.current
-    val nip11 = remember(context) { Nip11CacheManager.getInstance(context) }
 
     val topAppBarState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(topAppBarState)
 
-    // Filter state
-    var selectedTypeFilter by remember { mutableStateOf<RelayType?>(null) }
+    // ── Filter state ──
+    var selectedTypes by remember { mutableStateOf(emptySet<RelayType>()) }
+    var selectedSoftware by remember { mutableStateOf(emptySet<String>()) }
+    var selectedCountries by remember { mutableStateOf(emptySet<String>()) }
+    var selectedNips by remember { mutableStateOf(emptySet<Int>()) }
+    var filterPaymentRequired by remember { mutableStateOf<Boolean?>(null) }
+    var filterAuthRequired by remember { mutableStateOf<Boolean?>(null) }
+    var filterHasNip11 by remember { mutableStateOf<Boolean?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showFilters by remember { mutableStateOf(false) }
 
-    // Group relays by type
-    data class CategorizedDiscovery(
-        val search: List<DiscoveredRelay>,
-        val outbox: List<DiscoveredRelay>,
-        val inbox: List<DiscoveredRelay>,
-        val privateInbox: List<DiscoveredRelay>,
-        val directory: List<DiscoveredRelay>,
-        val other: List<DiscoveredRelay>,
-        val all: List<DiscoveredRelay>
-    )
-
-    val categorized = remember(discoveredRelays, selectedTypeFilter) {
-        val all = discoveredRelays.values.toList()
+    val allRelays = remember(discoveredRelays) {
+        discoveredRelays.values.toList()
             .sortedWith(compareByDescending<DiscoveredRelay> { it.monitorCount }.thenBy { it.url })
+    }
 
-        if (selectedTypeFilter != null) {
-            val filtered = all.filter { selectedTypeFilter in it.types }
-            CategorizedDiscovery(
-                search = emptyList(), outbox = emptyList(), inbox = emptyList(),
-                privateInbox = emptyList(), directory = emptyList(), other = emptyList(),
-                all = filtered
-            )
-        } else {
-            val search = all.filter { it.isSearch }
-            val outbox = all.filter { RelayType.PUBLIC_OUTBOX in it.types }
-            val inbox = all.filter { RelayType.PUBLIC_INBOX in it.types }
-            val privateInbox = all.filter { RelayType.PRIVATE_INBOX in it.types }
-            val directory = all.filter { RelayType.DIRECTORY in it.types }
-            // "Other" = relays with no recognized type, or types not in the above
-            val categorizedUrls = (search + outbox + inbox + privateInbox + directory).map { it.url }.toSet()
-            val other = all.filter { it.url !in categorizedUrls }
-            CategorizedDiscovery(search, outbox, inbox, privateInbox, directory, other, all)
+    // ── Build dynamic filter options from actual data ──
+    val softwareOptions = remember(allRelays) {
+        allRelays.mapNotNull { it.softwareShort }.distinct().sorted()
+    }
+    val countryOptions = remember(allRelays) {
+        allRelays.mapNotNull { it.countryCode }.distinct().sorted()
+    }
+    val nipOptions = remember(allRelays) {
+        allRelays.flatMap { it.supportedNips }.distinct().sorted()
+    }
+    val typeOptions = remember(allRelays) {
+        allRelays.flatMap { it.types }.distinct().sortedBy { it.ordinal }
+    }
+
+    // ── Apply all filters ──
+    val filteredRelays = remember(
+        allRelays, selectedTypes, selectedSoftware, selectedCountries,
+        selectedNips, filterPaymentRequired, filterAuthRequired, filterHasNip11, searchQuery
+    ) {
+        allRelays.filter { relay ->
+            // Type filter (OR: relay matches if it has ANY of the selected types)
+            (selectedTypes.isEmpty() || relay.types.any { it in selectedTypes }) &&
+            // Software filter (OR)
+            (selectedSoftware.isEmpty() || relay.softwareShort in selectedSoftware) &&
+            // Country filter (OR)
+            (selectedCountries.isEmpty() || relay.countryCode in selectedCountries) &&
+            // NIP filter (AND: relay must support ALL selected NIPs)
+            (selectedNips.isEmpty() || selectedNips.all { it in relay.supportedNips }) &&
+            // Boolean filters
+            (filterPaymentRequired == null || relay.paymentRequired == filterPaymentRequired) &&
+            (filterAuthRequired == null || relay.authRequired == filterAuthRequired) &&
+            (filterHasNip11 == null || relay.hasNip11 == filterHasNip11) &&
+            // Text search
+            (searchQuery.isBlank() || relay.url.contains(searchQuery, ignoreCase = true) ||
+                relay.name?.contains(searchQuery, ignoreCase = true) == true ||
+                relay.description?.contains(searchQuery, ignoreCase = true) == true ||
+                relay.softwareShort?.contains(searchQuery, ignoreCase = true) == true)
         }
     }
 
-    // Section expand state
-    var searchExpanded by remember { mutableStateOf(true) }
-    var outboxExpanded by remember { mutableStateOf(true) }
-    var inboxExpanded by remember { mutableStateOf(true) }
-    var privateInboxExpanded by remember { mutableStateOf(false) }
-    var directoryExpanded by remember { mutableStateOf(false) }
-    var otherExpanded by remember { mutableStateOf(false) }
+    val activeFilterCount = remember(
+        selectedTypes, selectedSoftware, selectedCountries, selectedNips,
+        filterPaymentRequired, filterAuthRequired, filterHasNip11
+    ) {
+        var count = 0
+        if (selectedTypes.isNotEmpty()) count++
+        if (selectedSoftware.isNotEmpty()) count++
+        if (selectedCountries.isNotEmpty()) count++
+        if (selectedNips.isNotEmpty()) count++
+        if (filterPaymentRequired != null) count++
+        if (filterAuthRequired != null) count++
+        if (filterHasNip11 != null) count++
+        count
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -122,10 +148,41 @@ fun RelayDiscoveryScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (activeFilterCount > 0) {
+                            FilledTonalButton(
+                                onClick = {
+                                    selectedTypes = emptySet()
+                                    selectedSoftware = emptySet()
+                                    selectedCountries = emptySet()
+                                    selectedNips = emptySet()
+                                    filterPaymentRequired = null
+                                    filterAuthRequired = null
+                                    filterHasNip11 = null
+                                    searchQuery = ""
+                                },
+                                modifier = Modifier.padding(end = 4.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            ) {
+                                Text("Clear $activeFilterCount", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        IconButton(onClick = { showFilters = !showFilters }) {
+                            BadgedBox(
+                                badge = {
+                                    if (activeFilterCount > 0) {
+                                        Badge { Text("$activeFilterCount") }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    if (showFilters) Icons.Filled.FilterList else Icons.Outlined.FilterList,
+                                    contentDescription = "Filters"
+                                )
+                            }
                         }
                     },
                     windowInsets = WindowInsets(0),
@@ -143,416 +200,390 @@ fun RelayDiscoveryScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            contentPadding = PaddingValues(bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            contentPadding = PaddingValues(bottom = 100.dp)
         ) {
-            // ── Summary ──
-            item(key = "discovery_summary") {
+            // ── Summary stats ──
+            item(key = "summary") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    DiscoveryStatPill(
-                        label = "Relays",
-                        value = "${discoveredRelays.size}",
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    DiscoveryStatPill(
-                        label = "Search",
-                        value = "${categorized.search.size}",
-                        color = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    DiscoveryStatPill(
-                        label = "Outbox",
-                        value = "${categorized.outbox.size}",
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    DiscoveryStatPill(
-                        label = "Inbox",
-                        value = "${categorized.inbox.size}",
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.weight(1f)
-                    )
+                    DiscoveryStatPill("Total", "${allRelays.size}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                    DiscoveryStatPill("Showing", "${filteredRelays.size}", MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+                    val nip11Count = allRelays.count { it.hasNip11 }
+                    DiscoveryStatPill("NIP-11", "$nip11Count", MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
+                    val swCount = softwareOptions.size
+                    DiscoveryStatPill("Software", "$swCount", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
                 }
             }
 
-            // ── Type filter chips ──
-            item(key = "type_filter_chips") {
-                val chipTypes = listOf(
-                    null to "All",
-                    RelayType.SEARCH to "Search",
-                    RelayType.PUBLIC_OUTBOX to "Outbox",
-                    RelayType.PUBLIC_INBOX to "Inbox",
-                    RelayType.PRIVATE_INBOX to "Private Inbox",
-                    RelayType.DIRECTORY to "Directory",
-                    RelayType.ARCHIVAL to "Archival",
-                    RelayType.BROADCAST to "Broadcast"
-                )
+            // ── Type filter chips (always visible) ──
+            item(key = "type_chips") {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(chipTypes.size) { index ->
-                        val (type, label) = chipTypes[index]
+                    // "All" chip
+                    item {
                         FilterChip(
-                            selected = selectedTypeFilter == type,
-                            onClick = { selectedTypeFilter = type },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                            selected = selectedTypes.isEmpty(),
+                            onClick = { selectedTypes = emptySet() },
+                            label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                    items(typeOptions) { type ->
+                        val count = filteredRelays.count { type in it.types }
+                        val totalCount = allRelays.count { type in it.types }
+                        FilterChip(
+                            selected = type in selectedTypes,
+                            onClick = {
+                                selectedTypes = if (type in selectedTypes) selectedTypes - type
+                                else selectedTypes + type
+                            },
+                            label = {
+                                Text(
+                                    if (count == totalCount) "${type.displayName} ($count)"
+                                    else "${type.displayName} ($count/$totalCount)",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
             }
 
-            // ── Loading / Empty ──
-            if (isLoading && discoveredRelays.isEmpty()) {
-                item(key = "loading") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 64.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(40.dp),
-                                strokeWidth = 3.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Text(
-                                text = "Discovering relays...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            } else if (hasFetched && discoveredRelays.isEmpty()) {
-                item(key = "empty") {
+            // ── Expandable filter panel ──
+            item(key = "filter_panel") {
+                AnimatedVisibility(
+                    visible = showFilters,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 64.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(horizontal = 16.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.size(72.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
+                        // Search
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = {
+                                Text(
+                                    "Search by name, URL, software...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            },
+                            leadingIcon = {
                                 Icon(
-                                    Icons.Outlined.Explore,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(36.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    Icons.Outlined.Search, null,
+                                    Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            text = "No relays discovered yet",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotBlank()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Filled.Clear, null, Modifier.size(20.dp))
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            shape = RoundedCornerShape(12.dp)
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Relay monitors haven't published discovery data to your connected relays",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 32.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        FilledTonalButton(
-                            onClick = {
-                                Nip66RelayDiscoveryRepository.init(context)
-                                val fallbackRelays = listOf(
-                                    "wss://purplepag.es",
-                                    "wss://relay.nostr.band",
-                                    "wss://user.kindpag.es"
-                                )
-                                Nip66RelayDiscoveryRepository.fetchRelayDiscovery(
-                                    fallbackRelays,
-                                    emptyList()
-                                )
-                            }
+                        Spacer(Modifier.height(12.dp))
+
+                        // Boolean toggles row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Retry")
+                            BooleanFilterChip("NIP-11", filterHasNip11) { filterHasNip11 = it }
+                            BooleanFilterChip("Payment", filterPaymentRequired) { filterPaymentRequired = it }
+                            BooleanFilterChip("Auth", filterAuthRequired) { filterAuthRequired = it }
                         }
+                        Spacer(Modifier.height(12.dp))
+
+                        // Software filter
+                        if (softwareOptions.isNotEmpty()) {
+                            ExpandableFilterSection(
+                                title = "Software",
+                                icon = Icons.Outlined.Code,
+                                options = softwareOptions,
+                                selectedOptions = selectedSoftware,
+                                onToggle = { sw ->
+                                    selectedSoftware = if (sw in selectedSoftware) selectedSoftware - sw
+                                    else selectedSoftware + sw
+                                },
+                                countProvider = { sw -> filteredRelays.count { it.softwareShort == sw } }
+                            )
+                        }
+
+                        // Country filter
+                        if (countryOptions.isNotEmpty()) {
+                            ExpandableFilterSection(
+                                title = "Country",
+                                icon = Icons.Outlined.Public,
+                                options = countryOptions,
+                                selectedOptions = selectedCountries,
+                                onToggle = { cc ->
+                                    selectedCountries = if (cc in selectedCountries) selectedCountries - cc
+                                    else selectedCountries + cc
+                                },
+                                countProvider = { cc -> filteredRelays.count { it.countryCode == cc } },
+                                formatLabel = { cc -> countryCodeToFlag(cc) + " " + countryName(cc) }
+                            )
+                        }
+
+                        // Supported NIPs filter
+                        if (nipOptions.isNotEmpty()) {
+                            ExpandableFilterSection(
+                                title = "Supported NIPs",
+                                icon = Icons.Outlined.Checklist,
+                                options = nipOptions.map { it.toString() },
+                                selectedOptions = selectedNips.map { it.toString() }.toSet(),
+                                onToggle = { nipStr ->
+                                    val nip = nipStr.toIntOrNull() ?: return@ExpandableFilterSection
+                                    selectedNips = if (nip in selectedNips) selectedNips - nip
+                                    else selectedNips + nip
+                                },
+                                countProvider = { nipStr ->
+                                    val nip = nipStr.toIntOrNull() ?: 0
+                                    filteredRelays.count { nip in it.supportedNips }
+                                },
+                                formatLabel = { "NIP-$it" }
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
                     }
                 }
             }
 
-            // ── Filtered view (single list) ──
-            if (selectedTypeFilter != null && categorized.all.isNotEmpty()) {
-                items(
-                    items = categorized.all,
-                    key = { "filtered_${it.url}" }
-                ) { relay ->
-                    DiscoveredRelayRow(
-                        relay = relay,
-                        nip11 = nip11,
-                        onClick = { onRelayClick(relay.url) }
+            // ── Loading / Empty ──
+            if (isLoading && allRelays.isEmpty()) {
+                item(key = "loading") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(Modifier.size(40.dp), strokeWidth = 3.dp)
+                            Spacer(Modifier.height(16.dp))
+                            Text("Discovering relays...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            } else if (hasFetched && allRelays.isEmpty()) {
+                item(key = "empty") {
+                    EmptyDiscoveryState(context)
+                }
+            } else if (filteredRelays.isEmpty() && allRelays.isNotEmpty()) {
+                item(key = "no_results") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Outlined.SearchOff, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        Spacer(Modifier.height(12.dp))
+                        Text("No relays match filters", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Try adjusting your filter criteria",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
+
+            // ── Results header ──
+            if (filteredRelays.isNotEmpty()) {
+                item(key = "results_header") {
+                    Text(
+                        text = "${filteredRelays.size} relay${if (filteredRelays.size != 1) "s" else ""}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                     )
                 }
             }
 
-            // ── Categorized sections (no filter) ──
-            if (selectedTypeFilter == null) {
-                // Search / Indexer
-                if (categorized.search.isNotEmpty()) {
-                    item(key = "section_search") {
-                        DiscoverySectionHeader(
-                            title = "Search / Indexer",
-                            count = categorized.search.size,
-                            icon = Icons.Outlined.Search,
-                            expanded = searchExpanded,
-                            onToggle = { searchExpanded = !searchExpanded }
-                        )
-                    }
-                    if (searchExpanded) {
-                        items(
-                            items = categorized.search,
-                            key = { "search_${it.url}" }
-                        ) { relay ->
-                            DiscoveredRelayRow(
-                                relay = relay,
-                                nip11 = nip11,
-                                onClick = { onRelayClick(relay.url) }
-                            )
-                        }
-                    }
-                }
-
-                // Public Outbox
-                if (categorized.outbox.isNotEmpty()) {
-                    item(key = "section_outbox") {
-                        DiscoverySectionHeader(
-                            title = "Public Outbox",
-                            count = categorized.outbox.size,
-                            icon = Icons.Outlined.Upload,
-                            expanded = outboxExpanded,
-                            onToggle = { outboxExpanded = !outboxExpanded }
-                        )
-                    }
-                    if (outboxExpanded) {
-                        items(
-                            items = categorized.outbox,
-                            key = { "outbox_${it.url}" }
-                        ) { relay ->
-                            DiscoveredRelayRow(
-                                relay = relay,
-                                nip11 = nip11,
-                                onClick = { onRelayClick(relay.url) }
-                            )
-                        }
-                    }
-                }
-
-                // Public Inbox
-                if (categorized.inbox.isNotEmpty()) {
-                    item(key = "section_inbox") {
-                        DiscoverySectionHeader(
-                            title = "Public Inbox",
-                            count = categorized.inbox.size,
-                            icon = Icons.Outlined.Download,
-                            expanded = inboxExpanded,
-                            onToggle = { inboxExpanded = !inboxExpanded }
-                        )
-                    }
-                    if (inboxExpanded) {
-                        items(
-                            items = categorized.inbox,
-                            key = { "inbox_${it.url}" }
-                        ) { relay ->
-                            DiscoveredRelayRow(
-                                relay = relay,
-                                nip11 = nip11,
-                                onClick = { onRelayClick(relay.url) }
-                            )
-                        }
-                    }
-                }
-
-                // Private Inbox
-                if (categorized.privateInbox.isNotEmpty()) {
-                    item(key = "section_private_inbox") {
-                        DiscoverySectionHeader(
-                            title = "Private Inbox",
-                            count = categorized.privateInbox.size,
-                            icon = Icons.Outlined.Lock,
-                            expanded = privateInboxExpanded,
-                            onToggle = { privateInboxExpanded = !privateInboxExpanded }
-                        )
-                    }
-                    if (privateInboxExpanded) {
-                        items(
-                            items = categorized.privateInbox,
-                            key = { "private_inbox_${it.url}" }
-                        ) { relay ->
-                            DiscoveredRelayRow(
-                                relay = relay,
-                                nip11 = nip11,
-                                onClick = { onRelayClick(relay.url) }
-                            )
-                        }
-                    }
-                }
-
-                // Directory
-                if (categorized.directory.isNotEmpty()) {
-                    item(key = "section_directory") {
-                        DiscoverySectionHeader(
-                            title = "Directory",
-                            count = categorized.directory.size,
-                            icon = Icons.Outlined.Folder,
-                            expanded = directoryExpanded,
-                            onToggle = { directoryExpanded = !directoryExpanded }
-                        )
-                    }
-                    if (directoryExpanded) {
-                        items(
-                            items = categorized.directory,
-                            key = { "directory_${it.url}" }
-                        ) { relay ->
-                            DiscoveredRelayRow(
-                                relay = relay,
-                                nip11 = nip11,
-                                onClick = { onRelayClick(relay.url) }
-                            )
-                        }
-                    }
-                }
-
-                // Other / Uncategorized
-                if (categorized.other.isNotEmpty()) {
-                    item(key = "section_other") {
-                        DiscoverySectionHeader(
-                            title = "Other",
-                            count = categorized.other.size,
-                            icon = Icons.Outlined.MoreHoriz,
-                            expanded = otherExpanded,
-                            onToggle = { otherExpanded = !otherExpanded }
-                        )
-                    }
-                    if (otherExpanded) {
-                        items(
-                            items = categorized.other,
-                            key = { "other_${it.url}" }
-                        ) { relay ->
-                            DiscoveredRelayRow(
-                                relay = relay,
-                                nip11 = nip11,
-                                onClick = { onRelayClick(relay.url) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ── Components ──
-
-@Composable
-private fun DiscoverySectionHeader(
-    title: String,
-    count: Int,
-    icon: ImageVector,
-    expanded: Boolean,
-    onToggle: () -> Unit
-) {
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (expanded) 0f else -90f,
-        animationSpec = tween(200),
-        label = "chevron"
-    )
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                indication = null,
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                onClick = onToggle
-            )
-            .padding(top = 12.dp),
-        color = MaterialTheme.colorScheme.surface
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Filled.ExpandMore,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(16.dp)
-                    .rotate(chevronRotation),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Text(
-                    text = "$count",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            // ── Relay list ──
+            items(
+                items = filteredRelays,
+                key = { it.url }
+            ) { relay ->
+                DiscoveredRelayRow(
+                    relay = relay,
+                    onClick = { onRelayClick(relay.url) }
                 )
             }
         }
-        HorizontalDivider(
-            thickness = 0.5.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-        )
     }
 }
+
+// ── Filter Components ──
+
+@Composable
+private fun BooleanFilterChip(
+    label: String,
+    value: Boolean?,
+    onValueChange: (Boolean?) -> Unit
+) {
+    FilterChip(
+        selected = value != null,
+        onClick = {
+            onValueChange(
+                when (value) {
+                    null -> true
+                    true -> false
+                    false -> null
+                }
+            )
+        },
+        label = {
+            Text(
+                when (value) {
+                    null -> label
+                    true -> "$label: Yes"
+                    false -> "$label: No"
+                },
+                style = MaterialTheme.typography.labelSmall
+            )
+        },
+        leadingIcon = {
+            when (value) {
+                true -> Icon(Icons.Filled.Check, null, Modifier.size(14.dp))
+                false -> Icon(Icons.Filled.Close, null, Modifier.size(14.dp))
+                null -> {}
+            }
+        }
+    )
+}
+
+@Composable
+private fun ExpandableFilterSection(
+    title: String,
+    icon: ImageVector,
+    options: List<String>,
+    selectedOptions: Set<String>,
+    onToggle: (String) -> Unit,
+    countProvider: (String) -> Int,
+    formatLabel: (String) -> String = { it },
+    initiallyExpanded: Boolean = false
+) {
+    var expanded by remember { mutableStateOf(initiallyExpanded || selectedOptions.isNotEmpty()) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 0f else -90f,
+        animationSpec = tween(200),
+        label = "chevron_$title"
+    )
+
+    Column {
+        // Header
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                ) { expanded = !expanded },
+            color = Color.Transparent
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                if (selectedOptions.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            "${selectedOptions.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
+                Icon(
+                    Icons.Filled.ExpandMore, null,
+                    Modifier.size(16.dp).rotate(chevronRotation),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Options (flow layout as horizontal scrolling chips)
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                options.forEach { option ->
+                    val count = countProvider(option)
+                    val isSelected = option in selectedOptions
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onToggle(option) },
+                        label = {
+                            Text(
+                                "${formatLabel(option)} ($count)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp
+                            )
+                        },
+                        modifier = Modifier.height(28.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Relay Row ──
 
 @Composable
 private fun DiscoveredRelayRow(
     relay: DiscoveredRelay,
-    nip11: Nip11CacheManager,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Get NIP-11 display name
-    val nip11Info = remember(relay.url) { nip11.getCachedRelayInfo(relay.url) }
-    val displayName = nip11Info?.name
+    val displayName = relay.name
         ?: relay.url.removePrefix("wss://").removePrefix("ws://").removeSuffix("/")
-    val iconUrl = nip11Info?.icon ?: nip11Info?.image
-
-    // Type chips text
-    val typeLabels = relay.types.map { it.displayName }
+    val iconUrl = relay.icon
 
     Surface(
         modifier = modifier
@@ -585,17 +616,14 @@ private fun DiscoveredRelayRow(
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = displayName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(
-                            Icons.Outlined.Public,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
+                            Icons.Outlined.Public, null,
+                            Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                     }
@@ -605,6 +633,7 @@ private fun DiscoveredRelayRow(
             Spacer(Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
+                // Name
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.bodyMedium,
@@ -613,54 +642,71 @@ private fun DiscoveredRelayRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(2.dp))
-                // Type tags row
-                if (typeLabels.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        typeLabels.take(3).forEach { label ->
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
-                        if (typeLabels.size > 3) {
-                            Text(
-                                text = "+${typeLabels.size - 3}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                // Latency info
-                val rttParts = buildList {
-                    relay.avgRttOpen?.let { add("open: ${it}ms") }
-                    relay.avgRttRead?.let { add("read: ${it}ms") }
-                    relay.avgRttWrite?.let { add("write: ${it}ms") }
-                }
-                if (rttParts.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
+
+                // URL (if name differs from URL)
+                if (relay.name != null) {
                     Text(
-                        text = rttParts.joinToString(" · "),
+                        text = relay.url.removePrefix("wss://").removePrefix("ws://"),
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(Modifier.height(3.dp))
+
+                // Metadata tags row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    // Type tags
+                    relay.types.take(2).forEach { type ->
+                        MetadataChip(type.displayName, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    if (relay.types.size > 2) {
+                        MetadataChip("+${relay.types.size - 2}", MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    // Software
+                    relay.softwareShort?.let { sw ->
+                        MetadataChip(sw, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                    // Country
+                    relay.countryCode?.let { cc ->
+                        MetadataChip(countryCodeToFlag(cc) + " " + countryName(cc), MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    // Payment/Auth badges
+                    if (relay.paymentRequired) {
+                        MetadataChip("Paid", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                    if (relay.authRequired) {
+                        MetadataChip("Auth", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+
+                // RTT info
+                relay.avgRttOpen?.let { rtt ->
+                    Spacer(Modifier.height(2.dp))
+                    val rttColor = when {
+                        rtt < 500 -> Color(0xFF66BB6A)
+                        rtt < 1000 -> Color(0xFFFFA726)
+                        else -> MaterialTheme.colorScheme.error
+                    }
+                    Text(
+                        text = "${rtt}ms",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = rttColor
                     )
                 }
             }
 
-            // Monitor count badge
-            if (relay.monitorCount > 0) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Monitor count + NIP count
+            Column(horizontalAlignment = Alignment.End) {
+                if (relay.monitorCount > 0) {
                     Text(
                         text = "${relay.monitorCount}",
                         style = MaterialTheme.typography.labelMedium,
@@ -674,8 +720,35 @@ private fun DiscoveredRelayRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
+                if (relay.supportedNips.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "${relay.supportedNips.size} NIPs",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
             }
         }
+    }
+}
+
+// ── Small Components ──
+
+@Composable
+private fun MetadataChip(text: String, backgroundColor: Color, textColor: Color) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = backgroundColor
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            color = textColor,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+        )
     }
 }
 
@@ -683,7 +756,7 @@ private fun DiscoveredRelayRow(
 private fun DiscoveryStatPill(
     label: String,
     value: String,
-    color: androidx.compose.ui.graphics.Color,
+    color: Color,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -696,17 +769,103 @@ private fun DiscoveryStatPill(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = color
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
+
+@Composable
+private fun EmptyDiscoveryState(context: android.content.Context) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.size(72.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Explore, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("No relays discovered yet", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Relay monitors haven't published discovery data to your connected relays",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 32.dp),
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(16.dp))
+        FilledTonalButton(
+            onClick = {
+                Nip66RelayDiscoveryRepository.init(context)
+                Nip66RelayDiscoveryRepository.fetchRelayDiscovery(
+                    listOf("wss://purplepag.es", "wss://relay.nostr.band", "wss://user.kindpag.es"),
+                    emptyList()
+                )
+            }
+        ) {
+            Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Retry")
+        }
+    }
+}
+
+/** Convert ISO 3166-1 alpha-2 country code to flag emoji. */
+private fun countryCodeToFlag(code: String): String {
+    if (code.length != 2) return code
+    val first = Character.codePointAt(code.uppercase(), 0) - 0x41 + 0x1F1E6
+    val second = Character.codePointAt(code.uppercase(), 1) - 0x41 + 0x1F1E6
+    return String(Character.toChars(first)) + String(Character.toChars(second))
+}
+
+/** Map ISO 3166-1 alpha-2 country code to human-readable name. */
+private fun countryName(code: String): String = COUNTRY_NAMES[code.uppercase()] ?: code
+
+private val COUNTRY_NAMES = mapOf(
+    "AD" to "Andorra", "AE" to "UAE", "AF" to "Afghanistan", "AG" to "Antigua & Barbuda",
+    "AL" to "Albania", "AM" to "Armenia", "AO" to "Angola", "AR" to "Argentina",
+    "AT" to "Austria", "AU" to "Australia", "AZ" to "Azerbaijan", "BA" to "Bosnia",
+    "BB" to "Barbados", "BD" to "Bangladesh", "BE" to "Belgium", "BG" to "Bulgaria",
+    "BH" to "Bahrain", "BJ" to "Benin", "BN" to "Brunei", "BO" to "Bolivia",
+    "BR" to "Brazil", "BS" to "Bahamas", "BT" to "Bhutan", "BW" to "Botswana",
+    "BY" to "Belarus", "BZ" to "Belize", "CA" to "Canada", "CD" to "DR Congo",
+    "CF" to "Central African Rep.", "CG" to "Congo", "CH" to "Switzerland",
+    "CI" to "Ivory Coast", "CL" to "Chile", "CM" to "Cameroon", "CN" to "China",
+    "CO" to "Colombia", "CR" to "Costa Rica", "CU" to "Cuba", "CV" to "Cape Verde",
+    "CY" to "Cyprus", "CZ" to "Czechia", "DE" to "Germany", "DJ" to "Djibouti",
+    "DK" to "Denmark", "DM" to "Dominica", "DO" to "Dominican Rep.", "DZ" to "Algeria",
+    "EC" to "Ecuador", "EE" to "Estonia", "EG" to "Egypt", "ES" to "Spain",
+    "ET" to "Ethiopia", "FI" to "Finland", "FJ" to "Fiji", "FR" to "France",
+    "GA" to "Gabon", "GB" to "United Kingdom", "GE" to "Georgia", "GH" to "Ghana",
+    "GM" to "Gambia", "GN" to "Guinea", "GR" to "Greece", "GT" to "Guatemala",
+    "GY" to "Guyana", "HK" to "Hong Kong", "HN" to "Honduras", "HR" to "Croatia",
+    "HT" to "Haiti", "HU" to "Hungary", "ID" to "Indonesia", "IE" to "Ireland",
+    "IL" to "Israel", "IN" to "India", "IQ" to "Iraq", "IR" to "Iran",
+    "IS" to "Iceland", "IT" to "Italy", "JM" to "Jamaica", "JO" to "Jordan",
+    "JP" to "Japan", "KE" to "Kenya", "KG" to "Kyrgyzstan", "KH" to "Cambodia",
+    "KR" to "South Korea", "KW" to "Kuwait", "KZ" to "Kazakhstan", "LA" to "Laos",
+    "LB" to "Lebanon", "LI" to "Liechtenstein", "LK" to "Sri Lanka", "LR" to "Liberia",
+    "LT" to "Lithuania", "LU" to "Luxembourg", "LV" to "Latvia", "LY" to "Libya",
+    "MA" to "Morocco", "MC" to "Monaco", "MD" to "Moldova", "ME" to "Montenegro",
+    "MG" to "Madagascar", "MK" to "N. Macedonia", "ML" to "Mali", "MM" to "Myanmar",
+    "MN" to "Mongolia", "MO" to "Macau", "MT" to "Malta", "MU" to "Mauritius",
+    "MV" to "Maldives", "MW" to "Malawi", "MX" to "Mexico", "MY" to "Malaysia",
+    "MZ" to "Mozambique", "NA" to "Namibia", "NE" to "Niger", "NG" to "Nigeria",
+    "NI" to "Nicaragua", "NL" to "Netherlands", "NO" to "Norway", "NP" to "Nepal",
+    "NZ" to "New Zealand", "OM" to "Oman", "PA" to "Panama", "PE" to "Peru",
+    "PG" to "Papua New Guinea", "PH" to "Philippines", "PK" to "Pakistan",
+    "PL" to "Poland", "PR" to "Puerto Rico", "PS" to "Palestine", "PT" to "Portugal",
+    "PY" to "Paraguay", "QA" to "Qatar", "RO" to "Romania", "RS" to "Serbia",
+    "RU" to "Russia", "RW" to "Rwanda", "SA" to "Saudi Arabia", "SC" to "Seychelles",
+    "SD" to "Sudan", "SE" to "Sweden", "SG" to "Singapore", "SI" to "Slovenia",
+    "SK" to "Slovakia", "SL" to "Sierra Leone", "SN" to "Senegal", "SO" to "Somalia",
+    "SR" to "Suriname", "SV" to "El Salvador", "SY" to "Syria", "TH" to "Thailand",
+    "TJ" to "Tajikistan", "TM" to "Turkmenistan", "TN" to "Tunisia", "TR" to "Turkey",
+    "TT" to "Trinidad & Tobago", "TW" to "Taiwan", "TZ" to "Tanzania",
+    "UA" to "Ukraine", "UG" to "Uganda", "US" to "United States", "UY" to "Uruguay",
+    "UZ" to "Uzbekistan", "VE" to "Venezuela", "VN" to "Vietnam", "ZA" to "South Africa",
+    "ZM" to "Zambia", "ZW" to "Zimbabwe"
+)

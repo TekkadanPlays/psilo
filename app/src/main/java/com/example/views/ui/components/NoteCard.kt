@@ -190,7 +190,10 @@ fun NoteCard(
             .padding(vertical = 4.dp)
             .clickable { onNoteClick(note) },
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = RectangleShape
+        shape = RectangleShape,
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // Author info
@@ -734,7 +737,7 @@ fun NoteCard(
                                         )
                                         onNoteClick(quotedNote)
                                     },
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                                 shape = RoundedCornerShape(8.dp)
                             ) {

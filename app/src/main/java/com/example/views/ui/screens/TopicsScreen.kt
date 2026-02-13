@@ -114,7 +114,8 @@ fun TopicsScreen(
     onTopAppBarStateChange: (TopAppBarState) -> Unit = {},
     initialTopAppBarState: TopAppBarState? = null,
     onQrClick: () -> Unit = {},
-    onSidebarSettingsClick: () -> Unit = {},
+    onSidebarRelayHealthClick: () -> Unit = {},
+    onSidebarRelayDiscoveryClick: () -> Unit = {},
     onNavigateToCreateTopic: (String?) -> Unit = {},
     onRelayClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -325,7 +326,8 @@ fun TopicsScreen(
         connectedRelayCount = connectedRelayCount,
         subscribedRelayCount = subscribedRelayCount,
         onQrClick = onQrClick,
-        onSettingsClick = onSidebarSettingsClick,
+        onRelayHealthClick = onSidebarRelayHealthClick,
+        onRelayDiscoveryClick = onSidebarRelayDiscoveryClick,
         onItemClick = { itemId ->
             when {
                 itemId == "global" -> {

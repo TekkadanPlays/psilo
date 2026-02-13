@@ -16,8 +16,8 @@ android {
         applicationId = "com.example.views.ribbit"
         minSdk = 35
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.1.6-beta"
+        versionCode = 9
+        versionName = "0.1.7-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -124,11 +124,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
     implementation("androidx.media3:media3-ui:1.3.1")
-
-    // Markdown rendering (compose-richtext)
-    implementation(libs.richtext.ui)
-    implementation(libs.richtext.ui.material3)
-    implementation(libs.richtext.commonmark)
 
     // HTML parsing for URL previews
     implementation("org.jsoup:jsoup:1.17.2")

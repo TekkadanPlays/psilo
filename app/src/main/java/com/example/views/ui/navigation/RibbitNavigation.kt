@@ -575,7 +575,16 @@ fun RibbitNavigation(
                             initialTopAppBarState = topAppBarState,
                             isDashboardVisible = (currentRoute == "dashboard"),
                             onQrClick = { navController.navigate("user_qr") },
-                            onSidebarSettingsClick = { navController.navigate("settings/relay_health") },
+                            onSidebarRelayHealthClick = {
+                                navController.navigate("settings/relay_health") {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onSidebarRelayDiscoveryClick = {
+                                navController.navigate("relay_discovery") {
+                                    launchSingleTop = true
+                                }
+                            },
                             onRelayClick = { relayUrl ->
                                 val encoded = android.net.Uri.encode(relayUrl)
                                 navController.navigate("relay_log/$encoded")
@@ -1428,6 +1437,16 @@ fun RibbitNavigation(
                             onOpenRelayLog = { relayUrl ->
                                 val encoded = java.net.URLEncoder.encode(relayUrl, "UTF-8")
                                 navController.navigate("relay_log/$encoded")
+                            },
+                            onOpenRelayHealth = {
+                                navController.navigate("settings/relay_health") {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onOpenRelayDiscovery = {
+                                navController.navigate("relay_discovery") {
+                                    launchSingleTop = true
+                                }
                             }
                     )
                 }
@@ -1552,7 +1571,16 @@ fun RibbitNavigation(
                                 },
                                 initialTopAppBarState = topAppBarState,
                                 onQrClick = { navController.navigate("user_qr") },
-                                onSidebarSettingsClick = { navController.navigate("settings/relay_health") },
+                                onSidebarRelayHealthClick = {
+                                    navController.navigate("settings/relay_health") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSidebarRelayDiscoveryClick = {
+                                    navController.navigate("relay_discovery") {
+                                        launchSingleTop = true
+                                    }
+                                },
                                 onNavigateToCreateTopic = { hashtag ->
                                     val encoded = android.net.Uri.encode(hashtag ?: "")
                                     navController.navigate("compose_topic?hashtag=$encoded")

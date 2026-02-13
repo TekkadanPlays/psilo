@@ -132,7 +132,29 @@ private fun subtreeWithStructure(tree: List<ThreadedReply>, focusReplyId: String
     return listOf(relevel(node, 0))
 }
 
-// CommentState is imported from ThreadViewScreen.kt
+// Data classes previously in ThreadViewScreen.kt — moved here after cleanup
+@Immutable
+data class CommentState(
+    val isExpanded: Boolean = true,
+    val isCollapsed: Boolean = false,
+    val showControls: Boolean = false
+)
+
+data class CommentThread(
+    val comment: Comment,
+    val replies: List<CommentThread> = emptyList()
+)
+
+fun formatTimestamp(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    return when {
+        diff < TimeUnit.MINUTES.toMillis(1) -> "now"
+        diff < TimeUnit.HOURS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toMinutes(diff)}m"
+        diff < TimeUnit.DAYS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toHours(diff)}h"
+        else -> dateFormatter.format(Date(timestamp))
+    }
+}
 
 /**
  * Modern, performant Thread View Screen following Material Design 3 principles
@@ -309,8 +331,6 @@ fun ModernThreadViewScreen(
     // ✅ ZAP MENU AWARENESS: Global state for zap menu closure (like feed cards)
     var shouldCloseZapMenus by remember { mutableStateOf(false) }
     var expandedZapMenuCommentId by remember { mutableStateOf<String?>(null) }
-    /** Reply ID whose "View relays" row is shown; toggled from dropdown. */
-    var expandedRelaysReplyId by remember { mutableStateOf<String?>(null) }
 
     // ✅ ZAP CONFIGURATION: Dialog state for editing zap amounts
     var showZapConfigDialog by remember { mutableStateOf(false) }
@@ -669,8 +689,6 @@ fun ModernThreadViewScreen(
                             onZapSettings = { showZapConfigDialog = true },
                             expandedControlsReplyId = expandedControlsReplyId,
                             onExpandedControlsReplyChange = onExpandedControlsReplyChange,
-                            expandedRelaysReplyId = expandedRelaysReplyId,
-                            onRelaysExpandedReplyChange = { expandedRelaysReplyId = it },
                             onReadMoreReplies = { replyId -> rootReplyIdStack = rootReplyIdStack + replyId },
                             onImageTap = { urls, idx -> onImageTap(note, urls, idx) },
                             onVideoClick = onVideoClick,
@@ -1397,9 +1415,6 @@ private fun ThreadedReplyCard(
     /** Which reply ID has controls expanded; null = all compact. */
     expandedControlsReplyId: String? = null,
     onExpandedControlsReplyChange: (String?) -> Unit = {},
-    /** Which reply ID has "View relays" row expanded; toggled from dropdown. */
-    expandedRelaysReplyId: String? = null,
-    onRelaysExpandedReplyChange: (String?) -> Unit = {},
     /** When level >= MAX_THREAD_DEPTH and there are children, tap "Read N more replies" opens sub-thread. */
     onReadMoreReplies: (String) -> Unit = {},
     onImageTap: (List<String>, Int) -> Unit = { _, _ -> },
@@ -1409,7 +1424,6 @@ private fun ThreadedReplyCard(
     val reply = threadedReply.reply
     val replyKey = logicalReplyKey(reply)
     val isControlsExpanded = expandedControlsReplyId == reply.id
-    val isRelaysExpanded = expandedRelaysReplyId == reply.id
     val onToggleControls: () -> Unit = { onExpandedControlsReplyChange(if (expandedControlsReplyId == reply.id) null else reply.id) }
     val level = threadedReply.level
     val state = commentStates.getOrPut(replyKey) { CommentState() }
@@ -1636,14 +1650,6 @@ private fun ThreadedReplyCard(
                                                 onDismissRequest = { showMore = false }
                                             ) {
                                                 DropdownMenuItem(
-                                                    text = { Text("View relays") },
-                                                    onClick = {
-                                                        onRelaysExpandedReplyChange(if (isRelaysExpanded) null else reply.id)
-                                                        showMore = false
-                                                    },
-                                                    leadingIcon = { Icon(Icons.Default.Public, contentDescription = null) }
-                                                )
-                                                DropdownMenuItem(
                                                     text = { Text("Share") },
                                                     onClick = { showMore = false },
                                                     leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
@@ -1662,20 +1668,6 @@ private fun ThreadedReplyCard(
                             if (replyRelayUrls.isNotEmpty()) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 RelayOrbs(relayUrls = replyRelayUrls, onRelayClick = onRelayClick)
-                            }
-                        }
-
-                        if (isRelaysExpanded && reply.relayUrls.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                RelayOrbs(
-                                    relayUrls = reply.relayUrls.distinct().take(8),
-                                    onRelayClick = onRelayClick
-                                )
                             }
                         }
 
@@ -1757,9 +1749,14 @@ private fun ThreadedReplyCard(
                             }
                         }
 
-                        // Reactions and zaps are now shown in the header row
+                        // Reactions and zaps — smooth expand/collapse
 
-                        if (isControlsExpanded) {
+                        AnimatedVisibility(
+                            visible = isControlsExpanded,
+                            enter = expandVertically(animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                            exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(150))
+                        ) {
+                        Column {
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1807,6 +1804,7 @@ private fun ThreadedReplyCard(
                                     onClick = { onExpandZapMenu(reply.id) }
                                 )
                             }
+                        }
                         }
                         }
                     }
@@ -1937,8 +1935,6 @@ private fun ThreadedReplyCard(
                         onZapSettings = onZapSettings,
                         expandedControlsReplyId = expandedControlsReplyId,
                         onExpandedControlsReplyChange = onExpandedControlsReplyChange,
-                        expandedRelaysReplyId = expandedRelaysReplyId,
-                        onRelaysExpandedReplyChange = onRelaysExpandedReplyChange,
                         onReadMoreReplies = onReadMoreReplies,
                         onImageTap = onImageTap,
                         onVideoClick = onVideoClick,
@@ -1966,9 +1962,55 @@ private fun ThreadedReplyCard(
         }
     }
 }
-// Data classes are imported from ThreadViewScreen.kt
-
-// formatTimestamp is imported from ThreadViewScreen.kt
+fun createSampleCommentThreads(): List<CommentThread> {
+    return listOf(
+        CommentThread(
+            comment = SampleData.sampleComments[0],
+            replies = listOf(
+                CommentThread(
+                    comment = SampleData.sampleComments[1],
+                    replies = listOf(
+                        CommentThread(
+                            comment = SampleData.sampleComments[6],
+                            replies = listOf(
+                                CommentThread(comment = SampleData.sampleComments[11])
+                            )
+                        ),
+                        CommentThread(
+                            comment = SampleData.sampleComments[7],
+                            replies = listOf(
+                                CommentThread(
+                                    comment = SampleData.sampleComments[10],
+                                    replies = listOf(
+                                        CommentThread(comment = SampleData.sampleComments[12])
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                CommentThread(comment = SampleData.sampleComments[5])
+            )
+        ),
+        CommentThread(
+            comment = SampleData.sampleComments[2],
+            replies = listOf(
+                CommentThread(
+                    comment = SampleData.sampleComments[3],
+                    replies = listOf(
+                        CommentThread(
+                            comment = SampleData.sampleComments[8],
+                            replies = listOf(
+                                CommentThread(comment = SampleData.sampleComments[9])
+                            )
+                        )
+                    )
+                )
+            )
+        ),
+        CommentThread(comment = SampleData.sampleComments[4])
+    )
+}
 
 @Preview(showBackground = true)
 @Composable

@@ -255,6 +255,11 @@ object Nip66RelayDiscoveryRepository {
         var rttRead: Int? = null
         var rttWrite: Int? = null
         var geohash: String? = null
+        // l-tag metadata (nostr.watch monitors publish these)
+        var countryCode: String? = null
+        var isp: String? = null
+        var asNumber: String? = null
+        var asName: String? = null
 
         event.tags.forEach { tag ->
             if (tag.size < 2) return@forEach
@@ -268,6 +273,19 @@ object Nip66RelayDiscoveryRepository {
                 "rtt-open" -> rttOpen = tag[1].toIntOrNull()
                 "rtt-read" -> rttRead = tag[1].toIntOrNull()
                 "rtt-write" -> rttWrite = tag[1].toIntOrNull()
+                "l" -> {
+                    // l-tags carry labeled metadata: ["l", value, namespace]
+                    if (tag.size >= 3) {
+                        val value = tag[1]
+                        val ns = tag[2]
+                        when {
+                            ns == "countryCode" || ns.contains("countryCode") -> countryCode = value.uppercase()
+                            ns.contains("isp") -> isp = value
+                            ns == "host.as" -> asNumber = value
+                            ns == "host.asn" -> asName = value
+                        }
+                    }
+                }
             }
         }
 
@@ -284,7 +302,11 @@ object Nip66RelayDiscoveryRepository {
             rttWrite = rttWrite,
             topics = topics,
             geohash = geohash,
-            nip11Content = event.content.takeIf { it.isNotBlank() }
+            nip11Content = event.content.takeIf { it.isNotBlank() },
+            countryCode = countryCode,
+            isp = isp,
+            asNumber = asNumber,
+            asName = asName
         )
     }
 
@@ -339,6 +361,11 @@ object Nip66RelayDiscoveryRepository {
                 val network = relayEvents.mapNotNull { it.network }.firstOrNull()
                 val nip11 = relayEvents.mapNotNull { it.nip11Content }.firstOrNull()
                 val lastSeen = relayEvents.maxOf { it.createdAt }
+                val monitorPubkeys = relayEvents.map { it.monitorPubkey }.distinct().toSet()
+
+                // l-tag metadata: take first non-null from any monitor
+                val countryCode = relayEvents.mapNotNull { it.countryCode }.firstOrNull()
+                val ispValue = relayEvents.mapNotNull { it.isp }.firstOrNull()
 
                 val avgRttOpen = relayEvents.mapNotNull { it.rttOpen }.takeIf { it.isNotEmpty() }
                     ?.let { it.sum() / it.size }
@@ -347,19 +374,92 @@ object Nip66RelayDiscoveryRepository {
                 val avgRttWrite = relayEvents.mapNotNull { it.rttWrite }.takeIf { it.isNotEmpty() }
                     ?.let { it.sum() / it.size }
 
+                // Parse NIP-11 JSON content for structured fields
+                var software: String? = null
+                var version: String? = null
+                var relayName: String? = null
+                var description: String? = null
+                var icon: String? = null
+                var banner: String? = null
+                var paymentRequired = false
+                var authRequired = false
+                var restrictedWrites = false
+                var hasNip11 = false
+                var operatorPubkey: String? = null
+                var nip11Nips = emptySet<Int>()
+
+                if (nip11 != null) {
+                    try {
+                        val parsed = kotlinx.serialization.json.Json.parseToJsonElement(nip11)
+                        val obj = parsed as? kotlinx.serialization.json.JsonObject
+                        if (obj != null && obj.isNotEmpty()) {
+                            hasNip11 = true
+                            software = obj["software"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                            version = obj["version"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                            relayName = obj["name"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                            description = obj["description"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                            icon = obj["icon"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                            banner = obj["banner"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                            operatorPubkey = obj["pubkey"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+
+                            val limitation = obj["limitation"] as? kotlinx.serialization.json.JsonObject
+                            if (limitation != null) {
+                                paymentRequired = (limitation["payment_required"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
+                                authRequired = (limitation["auth_required"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
+                                restrictedWrites = (limitation["restricted_writes"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
+                            }
+
+                            nip11Nips = obj["supported_nips"]
+                                ?.let { it as? kotlinx.serialization.json.JsonArray }
+                                ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+                                ?.toSet() ?: emptySet()
+                        }
+                    } catch (_: Exception) { /* malformed NIP-11 JSON */ }
+                }
+
+                // Merge NIPs from N tags and NIP-11 content
+                val allNips = if (nips.isNotEmpty()) nips + nip11Nips else nip11Nips
+
+                // Fallback heuristic: infer type from supported NIPs when T tags are absent
+                val effectiveTypes = if (types.isEmpty()) {
+                    val inferred = mutableSetOf<RelayType>()
+                    if (allNips.isNotEmpty()) {
+                        if (50 in allNips) inferred.add(RelayType.SEARCH)
+                        if (65 in allNips && (1 in allNips || 2 in allNips)) inferred.add(RelayType.PUBLIC_OUTBOX)
+                        if (4 in allNips || 44 in allNips) inferred.add(RelayType.PUBLIC_INBOX)
+                        if (96 in allNips) inferred.add(RelayType.BLOB)
+                        if (inferred.isEmpty() && (1 in allNips || 2 in allNips)) inferred.add(RelayType.PUBLIC_OUTBOX)
+                    }
+                    inferred
+                } else types
+
                 DiscoveredRelay(
                     url = url,
-                    types = types,
-                    supportedNips = nips,
+                    types = effectiveTypes,
+                    supportedNips = allNips,
                     requirements = reqs,
                     network = network,
                     avgRttOpen = avgRttOpen,
                     avgRttRead = avgRttRead,
                     avgRttWrite = avgRttWrite,
                     topics = topics,
-                    monitorCount = relayEvents.map { it.monitorPubkey }.distinct().size,
+                    monitorCount = monitorPubkeys.size,
                     lastSeen = lastSeen,
-                    nip11Json = nip11
+                    nip11Json = nip11,
+                    software = software,
+                    version = version,
+                    name = relayName,
+                    description = description,
+                    icon = icon,
+                    banner = banner,
+                    paymentRequired = paymentRequired,
+                    authRequired = authRequired,
+                    restrictedWrites = restrictedWrites,
+                    hasNip11 = hasNip11,
+                    operatorPubkey = operatorPubkey,
+                    countryCode = countryCode,
+                    isp = ispValue,
+                    seenByMonitors = monitorPubkeys
                 )
             }
     }
@@ -381,7 +481,21 @@ object Nip66RelayDiscoveryRepository {
                     "rttWrite" to (relay.avgRttWrite ?: -1),
                     "topics" to relay.topics.toList(),
                     "monitors" to relay.monitorCount,
-                    "lastSeen" to relay.lastSeen
+                    "lastSeen" to relay.lastSeen,
+                    "software" to (relay.software ?: ""),
+                    "version" to (relay.version ?: ""),
+                    "name" to (relay.name ?: ""),
+                    "description" to (relay.description ?: ""),
+                    "icon" to (relay.icon ?: ""),
+                    "banner" to (relay.banner ?: ""),
+                    "paymentRequired" to relay.paymentRequired,
+                    "authRequired" to relay.authRequired,
+                    "restrictedWrites" to relay.restrictedWrites,
+                    "hasNip11" to relay.hasNip11,
+                    "operatorPubkey" to (relay.operatorPubkey ?: ""),
+                    "countryCode" to (relay.countryCode ?: ""),
+                    "isp" to (relay.isp ?: ""),
+                    "seenByMonitors" to relay.seenByMonitors.toList()
                 )
             }
             val json = JSON.encodeToString(entries)
@@ -422,6 +536,21 @@ object Nip66RelayDiscoveryRepository {
                 val monitors = (entry["monitors"] as? Number)?.toInt() ?: 0
                 val lastSeen = (entry["lastSeen"] as? Number)?.toLong() ?: 0L
 
+                val softwareVal = (entry["software"] as? String)?.takeIf { it.isNotBlank() }
+                val versionVal = (entry["version"] as? String)?.takeIf { it.isNotBlank() }
+                val nameVal = (entry["name"] as? String)?.takeIf { it.isNotBlank() }
+                val descriptionVal = (entry["description"] as? String)?.takeIf { it.isNotBlank() }
+                val iconVal = (entry["icon"] as? String)?.takeIf { it.isNotBlank() }
+                val bannerVal = (entry["banner"] as? String)?.takeIf { it.isNotBlank() }
+                val paymentRequired = (entry["paymentRequired"] as? Boolean) ?: false
+                val authRequired = (entry["authRequired"] as? Boolean) ?: false
+                val restrictedWrites = (entry["restrictedWrites"] as? Boolean) ?: false
+                val hasNip11 = (entry["hasNip11"] as? Boolean) ?: false
+                val operatorPubkey = (entry["operatorPubkey"] as? String)?.takeIf { it.isNotBlank() }
+                val countryCode = (entry["countryCode"] as? String)?.takeIf { it.isNotBlank() }
+                val ispVal = (entry["isp"] as? String)?.takeIf { it.isNotBlank() }
+                val seenByMonitors = (entry["seenByMonitors"] as? List<*>)?.filterIsInstance<String>()?.toSet() ?: emptySet()
+
                 relays[url] = DiscoveredRelay(
                     url = url,
                     types = types,
@@ -433,7 +562,21 @@ object Nip66RelayDiscoveryRepository {
                     avgRttWrite = rttWrite,
                     topics = topics,
                     monitorCount = monitors,
-                    lastSeen = lastSeen
+                    lastSeen = lastSeen,
+                    software = softwareVal,
+                    version = versionVal,
+                    name = nameVal,
+                    description = descriptionVal,
+                    icon = iconVal,
+                    banner = bannerVal,
+                    paymentRequired = paymentRequired,
+                    authRequired = authRequired,
+                    restrictedWrites = restrictedWrites,
+                    hasNip11 = hasNip11,
+                    operatorPubkey = operatorPubkey,
+                    countryCode = countryCode,
+                    isp = ispVal,
+                    seenByMonitors = seenByMonitors
                 )
             }
 

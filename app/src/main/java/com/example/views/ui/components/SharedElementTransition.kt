@@ -19,7 +19,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.views.data.Author
 import com.example.views.data.SampleData
 
@@ -61,8 +64,18 @@ fun ProfilePicture(
         contentAlignment = Alignment.Center
     ) {
         if (author.avatarUrl != null) {
+            val context = LocalContext.current
+            val imageRequest = remember(author.avatarUrl) {
+                ImageRequest.Builder(context)
+                    .data(author.avatarUrl)
+                    .crossfade(200)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .placeholderMemoryCacheKey(author.avatarUrl)
+                    .build()
+            }
             AsyncImage(
-                model = author.avatarUrl,
+                model = imageRequest,
                 contentDescription = "Profile picture",
                 modifier = Modifier
                     .fillMaxSize()

@@ -108,6 +108,8 @@ fun RelayManagementScreen(
     accountStateViewModel: AccountStateViewModel,
     topAppBarState: TopAppBarState = rememberTopAppBarState(),
     onOpenRelayLog: (String) -> Unit = {},
+    onOpenRelayHealth: () -> Unit = {},
+    onOpenRelayDiscovery: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -193,6 +195,20 @@ fun RelayManagementScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = onOpenRelayDiscovery) {
+                            Icon(
+                                imageVector = Icons.Outlined.TravelExplore,
+                                contentDescription = "Discover Relays",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        IconButton(onClick = onOpenRelayHealth) {
+                            Icon(
+                                imageVector = Icons.Outlined.HealthAndSafety,
+                                contentDescription = "Relay Health",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                         // Publish button only on Personal tab
                         if (selectedTab == 1) {
                             IconButton(
@@ -210,7 +226,8 @@ fun RelayManagementScreen(
                         containerColor = MaterialTheme.colorScheme.surface,
                         scrolledContainerColor = MaterialTheme.colorScheme.surface,
                         titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        actionIconContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
             }
@@ -221,7 +238,24 @@ fun RelayManagementScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-                    // Flagged/blocked relays warning banner
+                    // Tab Row
+                    PrimaryTabRow(
+                        selectedTabIndex = selectedTab,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
+                            text = { Text("General") }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
+                            text = { Text("Personal") }
+                        )
+                    }
+
+                    // Flagged/blocked relays warning banner (below tabs)
                     val flaggedRelays by com.example.views.relay.RelayHealthTracker.flaggedRelays.collectAsState()
                     val blockedRelays by com.example.views.relay.RelayHealthTracker.blockedRelays.collectAsState()
                     val healthMap by com.example.views.relay.RelayHealthTracker.healthByRelay.collectAsState()
@@ -330,23 +364,6 @@ fun RelayManagementScreen(
                                 }
                             }
                         }
-                    }
-
-                    // Tab Row
-                    PrimaryTabRow(
-                        selectedTabIndex = selectedTab,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Tab(
-                            selected = selectedTab == 0,
-                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
-                            text = { Text("General") }
-                        )
-                        Tab(
-                            selected = selectedTab == 1,
-                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
-                            text = { Text("Personal") }
-                        )
                     }
 
                     // Tab Content with HorizontalPager
@@ -1116,11 +1133,11 @@ private fun RelaySettingsItem(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Relay icon - use NIP-11 icon if available, otherwise router icon
-                if (relay.info?.icon != null) {
+                // Relay icon - use NIP-11 icon/image if available, otherwise router icon
+                if (relay.profileImage != null) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(relay.info.icon)
+                            .data(relay.profileImage)
                             .crossfade(true)
                             .build(),
                         contentDescription = "Relay icon",
@@ -1247,10 +1264,10 @@ private fun PersonalRelayItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Relay icon
-            if (relay.info?.icon != null) {
+            if (relay.profileImage != null) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data(relay.info.icon)
+                        .data(relay.profileImage)
                         .crossfade(true)
                         .build(),
                     contentDescription = "Relay icon",
