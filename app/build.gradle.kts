@@ -123,8 +123,9 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
 
-    // Cybin Nostr crypto (secp256k1 Schnorr signing, ECDH)
-    implementation(libs.secp256k1.kmp)
+    // Cybin Nostr protocol library (crypto, NIP implementations, relay client)
+    implementation("com.github.TekkadanPlays:cybin:0.1.0")
+    // secp256k1 JNI native lib needed at runtime (Cybin exports the KMP API)
     implementation(libs.secp256k1.kmp.jni.android)
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
